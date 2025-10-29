@@ -211,8 +211,10 @@ const InterviewRoom = ({ roomId, onClose }) => {
     setParticipants(prev => prev.filter(p => p.id !== participantId));
   };
 
-  const handleOffer = async (offer) => {
+  const handleOffer = async (payload) => {
     try {
+      const { offer } = payload || {};
+      if (!offer) return;
       await peerConnectionRef.current.setRemoteDescription(offer);
       const answer = await peerConnectionRef.current.createAnswer();
       await peerConnectionRef.current.setLocalDescription(answer);
@@ -226,16 +228,20 @@ const InterviewRoom = ({ roomId, onClose }) => {
     }
   };
 
-  const handleAnswer = async (answer) => {
+  const handleAnswer = async (payload) => {
     try {
+      const { answer } = payload || {};
+      if (!answer) return;
       await peerConnectionRef.current.setRemoteDescription(answer);
     } catch (error) {
       console.error('Error handling answer:', error);
     }
   };
 
-  const handleIceCandidate = async (candidate) => {
+  const handleIceCandidate = async (payload) => {
     try {
+      const { candidate } = payload || {};
+      if (!candidate) return;
       await peerConnectionRef.current.addIceCandidate(candidate);
     } catch (error) {
       console.error('Error handling ICE candidate:', error);
