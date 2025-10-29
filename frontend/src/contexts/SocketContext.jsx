@@ -26,7 +26,10 @@ export const SocketProvider = ({ children }) => {
     const onInterviewRoute = location.pathname.startsWith('/interview/');
     if ((isAuthenticated && user) || onInterviewRoute) {
       // Connect to Socket.IO backend directly to avoid proxy issues
-      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      // Prefer URL from localStorage so both peers can target the same signaling server (e.g., ngrok)
+      const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('BACKEND_URL') : null;
+      const backendUrl = storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
       const socketOptions = {
         transports: ['websocket', 'polling'],
