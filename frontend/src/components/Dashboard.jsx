@@ -90,8 +90,7 @@ const Dashboard = () => {
       setShowMatchmaking(true);
     }
     setShowRoleModal(false);
-    setSelectedRole('');
-    setInterviewType('');
+    // Keep selectedRole/interviewType during matchmaking; clear on cancel or after match
   };
 
   // Explicit handler used by Interviews tab CTA
