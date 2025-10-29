@@ -29,7 +29,7 @@ export const SocketProvider = ({ children }) => {
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
       const token = localStorage.getItem('token');
       const socketOptions = {
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         withCredentials: true,
         reconnection: true,
         reconnectionAttempts: 10,

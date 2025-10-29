@@ -38,17 +38,23 @@ connectDB();
 
 const app = express();
 const server = createServer(app);
+
+// Support multiple frontend origins (comma-separated)
+const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:5173";
+const allowedOrigins = rawOrigins.split(',').map(o => o.trim()).filter(Boolean);
+
 const io = new Server(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:5173",
-    methods: ["GET", "POST"]
+    origin: allowedOrigins,
+    methods: ["GET", "POST"],
+    credentials: true
   }
 });
 
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.FRONTEND_URL || "http://localhost:5173",
+  origin: allowedOrigins,
   credentials: true
 }));
 
@@ -127,7 +133,7 @@ const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📱 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+  console.log(`📱 Allowed Frontends: ${allowedOrigins.join(', ')}`);
 });
 
 export { io };
