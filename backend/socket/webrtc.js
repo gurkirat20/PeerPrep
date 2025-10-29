@@ -11,7 +11,9 @@ export const setupWebRTCSignaling = (io) => {
 
     // Join room
     socket.on('joinRoom', async (data) => {
-      const { roomId, userId } = data;
+      const { roomId } = data;
+      // Prefer authenticated userId from socket, fallback to client-provided, then socket id label
+      const userId = socket.userId || data.userId || `guest:${socket.id}`;
       
       try {
         // Leave previous room if any
@@ -61,13 +63,23 @@ export const setupWebRTCSignaling = (io) => {
 
         console.log(`User ${userId} joined room ${roomId}`);
 
-        // If this is the second participant, start the interview
+        // If there are two participants, validate they are different users, then start
         if (room.participants.size === 2) {
-          room.status = 'active';
-          io.to(roomId).emit('interviewStarted', {
-            roomId,
-            startedAt: new Date()
-          });
+          const uniqueUserIds = new Set(Array.from(room.participants.values()).map(p => p.userId));
+          if (uniqueUserIds.size < 2) {
+            // Same user joined twice - notify and keep room waiting
+            room.status = 'waiting';
+            io.to(roomId).emit('roomWarning', {
+              roomId,
+              reason: 'Both connections are the same user. Open link on another account/device.'
+            });
+          } else {
+            room.status = 'active';
+            io.to(roomId).emit('interviewStarted', {
+              roomId,
+              startedAt: new Date()
+            });
+          }
         }
 
       } catch (error) {
