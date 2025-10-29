@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
@@ -14,6 +15,7 @@ export const useSocket = () => {
 
 export const SocketProvider = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [queueStatus, setQueueStatus] = useState(null);
@@ -54,6 +56,17 @@ export const SocketProvider = ({ children }) => {
         console.log('🎯 Match found:', data);
         setMatchFound(data);
         setQueueStatus(null); // Clear queue status
+        // If backend provides roomId directly, navigate immediately
+        if (data.roomId) {
+          navigate(`/interview/${data.roomId}`);
+        }
+      });
+
+      // Start call trigger from backend
+      newSocket.on('startCall', ({ roomId }) => {
+        if (roomId) {
+          navigate(`/interview/${roomId}`);
+        }
       });
 
       newSocket.on('queueLeft', () => {

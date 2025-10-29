@@ -160,9 +160,23 @@ const InterviewRoom = ({ roomId, onClose }) => {
     }
   };
 
-  const handleRoomJoined = (data) => {
+  const handleRoomJoined = async (data) => {
     setRoomStatus('connected');
     setParticipants(data.participants);
+    try {
+      // Ensure media and RTCPeerConnection are ready
+      if (!peerConnectionRef.current || !localStreamRef.current) {
+        await initializeWebRTC();
+      }
+      // If initiator, create and send offer
+      if (data.isInitiator && peerConnectionRef.current) {
+        const offer = await peerConnectionRef.current.createOffer();
+        await peerConnectionRef.current.setLocalDescription(offer);
+        socket.emit('offer', { roomId, offer });
+      }
+    } catch (e) {
+      console.error('Error handling room join/init offer:', e);
+    }
   };
 
   const handleParticipantJoined = (participant) => {
