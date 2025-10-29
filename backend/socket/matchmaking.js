@@ -287,8 +287,10 @@ export const setupMatchmaking = () => {
 
         // Create match with compatibility data
         const matchId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        const roomId = `room_${matchId}`;
         const match = {
           matchId,
+          roomId,
           user1: user1Queue,
           user2: user2Queue,
           preferences: user1Queue.preferences,
@@ -308,6 +310,7 @@ export const setupMatchmaking = () => {
         if (user1Socket) {
           user1Socket.emit('matchFound', {
             matchId,
+            roomId,
             opponentRole: user2Queue.preferences.role,
             interviewType: user1Queue.preferences.interviewType,
             duration: user1Queue.preferences.duration,
@@ -317,11 +320,14 @@ export const setupMatchmaking = () => {
             scoreBreakdown: matchResult?.scoreBreakdown || {},
             matchReasons: generateMatchReasons(matchResult?.scoreBreakdown || {})
           });
+          // Prompt client to join WebRTC room
+          user1Socket.emit('startCall', { roomId });
         }
 
         if (user2Socket) {
           user2Socket.emit('matchFound', {
             matchId,
+            roomId,
             opponentRole: user1Queue.preferences.role,
             interviewType: user2Queue.preferences.interviewType,
             duration: user2Queue.preferences.duration,
@@ -331,6 +337,8 @@ export const setupMatchmaking = () => {
             scoreBreakdown: matchResult?.scoreBreakdown || {},
             matchReasons: generateMatchReasons(matchResult?.scoreBreakdown || {})
           });
+          // Prompt client to join WebRTC room
+          user2Socket.emit('startCall', { roomId });
         }
 
         // Remove from active queues temporarily
