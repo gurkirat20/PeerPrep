@@ -23,11 +23,17 @@ export const SocketProvider = ({ children }) => {
 
   useEffect(() => {
     if (isAuthenticated && user) {
-      // Connect to Socket.IO server
-      const newSocket = io('/', {
+      // Connect to Socket.IO backend directly to avoid proxy issues
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const newSocket = io(backendUrl, {
         auth: {
           token: localStorage.getItem('token')
-        }
+        },
+        transports: ['websocket'],
+        withCredentials: true,
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 1000
       });
 
       // Connection events
