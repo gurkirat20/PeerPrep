@@ -27,7 +27,7 @@ export const NotificationProvider = ({ children }) => {
     
     try {
       setIsLoading(true);
-      const response = await axios.get('/api/notifications');
+      const response = await axios.get('/notifications');
       
       if (response.data.success) {
         setNotifications(response.data.data.notifications);
@@ -43,7 +43,7 @@ export const NotificationProvider = ({ children }) => {
   // Mark notification as read
   const markAsRead = async (notificationId) => {
     try {
-      await axios.patch(`/api/notifications/${notificationId}/read`);
+      await axios.patch(`/notifications/${notificationId}/read`);
       
       setNotifications(prev => 
         prev.map(notif => 
@@ -62,7 +62,7 @@ export const NotificationProvider = ({ children }) => {
   // Mark all notifications as read
   const markAllAsRead = async () => {
     try {
-      await axios.patch('/api/notifications/mark-all-read');
+      await axios.patch('/notifications/mark-all-read');
       
       setNotifications(prev => 
         prev.map(notif => ({ ...notif, isRead: true, readAt: new Date() }))

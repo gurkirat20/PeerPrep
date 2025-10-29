@@ -20,6 +20,7 @@ import matchmakingRoutes from './routes/matchmaking.js';
         import aiInterviewRoutes from './routes/aiInterview.js';
         import dashboardRoutes from './routes/dashboard.js';
 import peerAnalysisRoutes from './routes/peerAnalysis.js';
+import notificationRoutes from './routes/notifications.js';
 
 // Import services
 import MatchmakingService from './services/MatchmakingService.js';
@@ -70,6 +71,7 @@ app.use('/api/matchmaking', matchmakingRoutes);
         app.use('/api/ai-interview', aiInterviewRoutes);
         app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/peer-analysis', peerAnalysisRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
