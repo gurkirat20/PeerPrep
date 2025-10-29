@@ -82,12 +82,12 @@ const Dashboard = () => {
       openAIInterviewerWindow();
     } else {
       console.log(`Starting peer interview as ${selectedRole}`);
-      // Start matchmaking with user profile data
+      // Start matchmaking UI (socket-driven)
       setMatchmakingPreferences({
         role: selectedRole,
         userProfile: user
       });
-      setShowMatchmakingLoader(true);
+      setShowMatchmaking(true);
     }
     setShowRoleModal(false);
     setSelectedRole('');
@@ -549,17 +549,7 @@ const Dashboard = () => {
         />
       )}
 
-      {/* Matchmaking Loader */}
-      {showMatchmakingLoader && (
-        <MatchmakingLoader
-          onCancel={() => {
-            setShowMatchmakingLoader(false);
-            setMatchmakingPreferences(null);
-          }}
-          preferences={matchmakingPreferences}
-          onNoMatch={handleNoMatch}
-        />
-      )}
+      {/* Matchmaking Loader intentionally disabled in favor of live socket matchmaking */}
 
     </div>
   );

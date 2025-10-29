@@ -138,6 +138,8 @@ router.get('/me', authenticateToken, async (req, res) => {
         role: req.user.role,
         skillLevel: req.user.skillLevel,
         skills: req.user.skills,
+        interests: req.user.interests,
+        preferredTopics: req.user.preferredTopics,
         experience: req.user.experience,
         preferences: req.user.preferences,
         stats: req.user.stats,
