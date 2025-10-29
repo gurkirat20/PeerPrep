@@ -83,31 +83,27 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Socket.IO authentication middleware
+// Socket.IO authentication middleware (optional auth)
 io.use(async (socket, next) => {
   try {
-    const token = socket.handshake.auth.token;
+    const token = socket.handshake.auth?.token;
     if (!token) {
-      return next(new Error('Authentication required'));
+      // Allow unauthenticated connections (e.g., public interview room links)
+      return next();
     }
 
-    // Verify JWT token
     const jwt = await import('jsonwebtoken');
     const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
-    
-    // Get user from database
     const User = (await import('./models/User.js')).default;
     const user = await User.findById(decoded.userId).select('-password');
-    
-    if (!user) {
-      return next(new Error('User not found'));
+    if (user) {
+      socket.userId = user._id.toString();
+      socket.user = user;
     }
-
-    socket.userId = user._id.toString();
-    socket.user = user;
-    next();
+    return next();
   } catch (error) {
-    next(new Error('Invalid token'));
+    // If token is invalid, still allow basic connection but without user context
+    return next();
   }
 });
 
