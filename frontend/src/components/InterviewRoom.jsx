@@ -54,8 +54,8 @@ const InterviewRoom = ({ roomId, onClose }) => {
   // Initialize WebRTC and join room
   useEffect(() => {
     // Always join the room first, then try WebRTC
-    if (socket && user) {
-      socket.emit('joinRoom', { roomId, userId: user._id });
+    if (socket) {
+      socket.emit('joinRoom', { roomId, userId: user ? user._id : undefined });
       
       // Set a fallback timeout to ensure room status is set
       const fallbackTimeout = setTimeout(() => {
@@ -105,16 +105,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
   const initializeWebRTC = async () => {
     try {
-      // Get user media
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: true
-      });
-      
-      localStreamRef.current = stream;
-      localVideoRef.current.srcObject = stream;
-      
-      // Create peer connection with optional TURN from env
+      // Prepare ICE servers (STUN + optional TURN)
       const iceServers = [
         { urls: 'stun:stun.l.google.com:19302' },
         { urls: 'stun:stun1.l.google.com:19302' }
@@ -123,53 +114,39 @@ const InterviewRoom = ({ roomId, onClose }) => {
       const turnUsername = import.meta.env.VITE_TURN_USERNAME;
       const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
       if (turnUrl && turnUsername && turnCredential) {
-        iceServers.push({
-          urls: turnUrl,
-          username: turnUsername,
-          credential: turnCredential
-        });
+        iceServers.push({ urls: turnUrl, username: turnUsername, credential: turnCredential });
       }
-      peerConnectionRef.current = new RTCPeerConnection({
-        iceServers
-      });
 
-      // Add local stream to peer connection
-      stream.getTracks().forEach(track => {
-        peerConnectionRef.current.addTrack(track, stream);
-      });
+      // Always create the RTCPeerConnection, even if media fails
+      if (!peerConnectionRef.current) {
+        peerConnectionRef.current = new RTCPeerConnection({ iceServers });
 
-      // Handle remote stream
-      peerConnectionRef.current.ontrack = (event) => {
-        remoteVideoRef.current.srcObject = event.streams[0];
-      };
+        // Handle remote stream
+        peerConnectionRef.current.ontrack = (event) => {
+          remoteVideoRef.current.srcObject = event.streams[0];
+        };
 
-      // Handle ICE candidates
-      peerConnectionRef.current.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('iceCandidate', {
-            roomId,
-            candidate: event.candidate
-          });
-        }
-      };
+        // Handle ICE candidates
+        peerConnectionRef.current.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('iceCandidate', { roomId, candidate: event.candidate });
+          }
+        };
+      }
 
-      // Room joining is handled separately in useEffect
-      
+      // Try to get user media; proceed without it if blocked/unavailable
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+        stream.getTracks().forEach(track => peerConnectionRef.current.addTrack(track, stream));
+      } catch (mediaError) {
+        console.log('Proceeding without local media:', mediaError?.name || mediaError);
+      }
+
     } catch (error) {
       console.error('Error initializing WebRTC:', error);
-      
-      // Handle specific error types
-      if (error.name === 'NotAllowedError') {
-        console.log('Camera/microphone access denied. Continuing without media...');
-        // Continue without media - user can still use chat and other features
-        setRoomStatus('connected');
-      } else if (error.name === 'NotFoundError') {
-        console.log('No camera/microphone found. Continuing without media...');
-        setRoomStatus('connected');
-      } else {
-        console.log('WebRTC error, but continuing without media:', error);
-        setRoomStatus('connected');
-      }
+      setRoomStatus('connected');
     }
   };
 
