@@ -33,6 +33,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
   const [roomStatus, setRoomStatus] = useState('connecting');
   const [interviewDuration, setInterviewDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isInitiator, setIsInitiator] = useState(false);
   
   // Chat state
   const [messages, setMessages] = useState([]);
@@ -175,6 +176,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
   const handleRoomJoined = async (data) => {
     setRoomStatus('connected');
     setParticipants(data.participants);
+    setIsInitiator(Boolean(data.isInitiator));
     try {
       // Ensure media and RTCPeerConnection are ready
       if (!peerConnectionRef.current || !localStreamRef.current) {
@@ -191,8 +193,18 @@ const InterviewRoom = ({ roomId, onClose }) => {
     }
   };
 
-  const handleParticipantJoined = (participant) => {
+  const handleParticipantJoined = async (participant) => {
     setParticipants(prev => [...prev, participant]);
+    try {
+      // If I am the initiator and have a connection ready, (re)create an offer for the new participant
+      if (isInitiator && peerConnectionRef.current && localStreamRef.current) {
+        const offer = await peerConnectionRef.current.createOffer();
+        await peerConnectionRef.current.setLocalDescription(offer);
+        socket.emit('offer', { roomId, offer });
+      }
+    } catch (e) {
+      console.error('Error sending offer on participant join:', e);
+    }
   };
 
   const handleParticipantLeft = (participantId) => {
