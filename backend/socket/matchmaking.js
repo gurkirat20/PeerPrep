@@ -23,13 +23,13 @@ const findMatch = async (userQueue) => {
     ];
 
     const potentialMatches = await MatchmakingQueue.find({
-      user: { $ne: user },
+      userId: { $ne: user },
       'preferences.role': oppositeRole,
       'preferences.skillLevel': { $in: compatibleLevels },
       'preferences.interviewType': preferences.interviewType,
       'preferences.duration': { $gte: preferences.duration - 15, $lte: preferences.duration + 15 },
       status: 'waiting'
-    }).populate('user', 'name email skillLevel');
+    }).populate('userId', 'name email skillLevel');
 
     if (potentialMatches.length > 0) {
       const bestMatch = potentialMatches.find(match => 
@@ -82,21 +82,20 @@ export const setupMatchmaking = () => {
           return;
         }
 
-        // Remove user from any existing queue
-        await MatchmakingQueue.findOneAndDelete({ user: userId });
-        if (activeQueues.has(userId)) {
-          activeQueues.delete(userId);
-        }
-
-        // Create queue entry
-        const queueEntry = new MatchmakingQueue({
-          user: userId,
-          preferences,
-          status: 'waiting',
-          joinedAt: new Date()
-        });
-
-        await queueEntry.save();
+        // Upsert queue entry to avoid duplicate key errors
+        const queueEntry = await MatchmakingQueue.findOneAndUpdate(
+          { userId: userId },
+          { 
+            $set: {
+              preferences,
+              status: 'waiting',
+              joinedAt: new Date(),
+              socketId: socket.id,
+              lastPing: new Date()
+            }
+          },
+          { upsert: true, new: true, setDefaultsOnInsert: true }
+        );
         
         // Store in active queues
         activeQueues.set(userId, {
@@ -106,21 +105,25 @@ export const setupMatchmaking = () => {
           queueEntry
         });
 
-        // Update queue position
-        await queueEntry.updateQueuePosition();
-        const updatedQueue = await MatchmakingQueue.findById(queueEntry._id);
+        // Compute queue position and ETA
+        const position = await MatchmakingQueue.countDocuments({ 
+          status: 'waiting', 
+          joinedAt: { $lte: queueEntry.joinedAt }
+        });
+        const totalInQueue = await MatchmakingQueue.countDocuments({ status: 'waiting' });
+        const estimatedWaitTime = Math.max(0, position - 1) * 2; // simple 2-min per position estimate
 
         socket.emit('queueJoined', {
-          position: updatedQueue.queuePosition,
-          estimatedWaitTime: updatedQueue.estimatedWaitTime,
-          totalInQueue: await MatchmakingQueue.countDocuments({ status: 'waiting' }),
+          position,
+          estimatedWaitTime,
+          totalInQueue,
           oppositeRole: preferences.role === 'interviewer' ? 'interviewee' : 'interviewer'
         });
 
         // Try to find a match immediately using enhanced algorithm
         const matchResult = await findBestMatch(activeQueues.get(userId));
         if (matchResult) {
-          await handleMatchFound(userId, matchResult.match.user.toString(), matchResult);
+          await handleMatchFound(userId, matchResult.match.userId.toString(), matchResult);
         }
 
       } catch (error) {
@@ -136,7 +139,7 @@ export const setupMatchmaking = () => {
         if (!userId) return;
 
         // Remove from database
-        await MatchmakingQueue.findOneAndDelete({ user: userId });
+        await MatchmakingQueue.findOneAndDelete({ userId: userId });
         
         // Remove from active queues
         if (activeQueues.has(userId)) {
@@ -177,8 +180,8 @@ export const setupMatchmaking = () => {
           
           if (session) {
             // Notify both users
-            const user1Socket = io.sockets.sockets.get(match.user1.socketId);
-            const user2Socket = io.sockets.sockets.get(match.user2.socketId);
+          const user1Socket = io.sockets.sockets.get(match.user1.socketId);
+          const user2Socket = io.sockets.sockets.get(match.user2.socketId);
 
             if (user1Socket) {
               user1Socket.emit('interviewStarted', {
@@ -257,7 +260,7 @@ export const setupMatchmaking = () => {
           const userQueue = activeQueues.get(userId);
           const match = await findMatch(userQueue);
           if (match) {
-            await handleMatchFound(userId, match.user.toString());
+            await handleMatchFound(userId, match.userId.toString());
           }
         }
 
@@ -265,7 +268,7 @@ export const setupMatchmaking = () => {
           const otherUserQueue = activeQueues.get(otherUserId);
           const match = await findMatch(otherUserQueue);
           if (match) {
-            await handleMatchFound(otherUserId, match.user.toString());
+            await handleMatchFound(otherUserId, match.userId.toString());
           }
         }
 
@@ -373,7 +376,7 @@ export const setupMatchmaking = () => {
         if (!userId) return;
 
         // Remove from queue
-        await MatchmakingQueue.findOneAndDelete({ user: userId });
+        await MatchmakingQueue.findOneAndDelete({ userId: userId });
         activeQueues.delete(userId);
 
         console.log('🔌 User disconnected:', socket.id);
