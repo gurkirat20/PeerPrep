@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
@@ -16,25 +16,29 @@ export const useSocket = () => {
 export const SocketProvider = ({ children }) => {
   const { user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [socket, setSocket] = useState(null);
   const [isConnected, setIsConnected] = useState(false);
   const [queueStatus, setQueueStatus] = useState(null);
   const [matchFound, setMatchFound] = useState(null);
 
   useEffect(() => {
-    if (isAuthenticated && user) {
+    const onInterviewRoute = location.pathname.startsWith('/interview/');
+    if ((isAuthenticated && user) || onInterviewRoute) {
       // Connect to Socket.IO backend directly to avoid proxy issues
       const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-      const newSocket = io(backendUrl, {
-        auth: {
-          token: localStorage.getItem('token')
-        },
+      const token = localStorage.getItem('token');
+      const socketOptions = {
         transports: ['websocket'],
         withCredentials: true,
         reconnection: true,
         reconnectionAttempts: 10,
         reconnectionDelay: 1000
-      });
+      };
+      if (token) {
+        socketOptions.auth = { token };
+      }
+      const newSocket = io(backendUrl, socketOptions);
 
       // Connection events
       newSocket.on('connect', () => {
@@ -100,7 +104,7 @@ export const SocketProvider = ({ children }) => {
         setMatchFound(null);
       }
     }
-  }, [isAuthenticated, user]);
+  }, [isAuthenticated, user, location.pathname]);
 
   const joinQueue = (preferences) => {
     if (socket && isConnected) {

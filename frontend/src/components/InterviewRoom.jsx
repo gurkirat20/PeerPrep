@@ -38,6 +38,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [copied, setCopied] = useState(false);
   
   
   // Timer for interview duration
@@ -404,6 +405,29 @@ const InterviewRoom = ({ roomId, onClose }) => {
     }
   };
 
+  const handleShareLink = async () => {
+    const link = `${window.location.origin}/interview/${roomId}`;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy link', e);
+    }
+  };
+
   if (roomStatus === 'connecting') {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center">
@@ -455,6 +479,14 @@ const InterviewRoom = ({ roomId, onClose }) => {
         </div>
         
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handleShareLink}
+            className="flex items-center space-x-2 px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 transition-colors relative"
+            title="Copy room link"
+          >
+            <Share2 className="w-4 h-4" />
+            <span>{copied ? 'Copied!' : 'Share link'}</span>
+          </button>
           <button
             onClick={handleLeaveRoom}
             className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
