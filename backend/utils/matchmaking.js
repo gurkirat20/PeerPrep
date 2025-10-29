@@ -216,20 +216,23 @@ export const findBestMatch = async (userQueue) => {
 
     // Get all potential matches
     const potentialMatches = await MatchmakingQueue.find({
-      user: { $ne: user },
+      userId: { $ne: user },
       'preferences.role': oppositeRole,
       status: 'waiting'
-    }).populate('user', 'name email skills interests preferredTopics experience');
+    }).populate('userId', 'name email skills interests preferredTopics experience');
 
     if (potentialMatches.length === 0) {
       return null;
     }
 
+    // Load initiating user's profile for scoring
+    const user1 = await User.findById(user).select('name email skills interests preferredTopics experience');
+
     // Calculate intersection scores for all potential matches
     const scoredMatches = potentialMatches.map(match => {
       const scoreData = calculateIntersectionScore(
-        userQueue.user,
-        match.user,
+        user1,
+        match.userId,
         preferences,
         match.preferences
       );
