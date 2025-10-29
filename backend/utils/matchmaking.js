@@ -248,8 +248,8 @@ export const findBestMatch = async (userQueue) => {
     // Sort by score (highest first)
     scoredMatches.sort((a, b) => b.score - a.score);
 
-    // Filter matches with minimum threshold (e.g., 60% compatibility)
-    const threshold = 60; // 60% minimum compatibility
+    // Filter matches with minimum threshold (e.g., 50% compatibility)
+    const threshold = 50; // 50% minimum compatibility
     const viableMatches = scoredMatches.filter(match => match.percentage >= threshold);
 
     if (viableMatches.length === 0) {
