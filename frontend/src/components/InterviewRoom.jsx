@@ -112,12 +112,23 @@ const InterviewRoom = ({ roomId, onClose }) => {
       localStreamRef.current = stream;
       localVideoRef.current.srcObject = stream;
       
-      // Create peer connection
+      // Create peer connection with optional TURN from env
+      const iceServers = [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ];
+      const turnUrl = import.meta.env.VITE_TURN_URL;
+      const turnUsername = import.meta.env.VITE_TURN_USERNAME;
+      const turnCredential = import.meta.env.VITE_TURN_CREDENTIAL;
+      if (turnUrl && turnUsername && turnCredential) {
+        iceServers.push({
+          urls: turnUrl,
+          username: turnUsername,
+          credential: turnCredential
+        });
+      }
       peerConnectionRef.current = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+        iceServers
       });
 
       // Add local stream to peer connection

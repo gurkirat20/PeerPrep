@@ -136,6 +136,32 @@ const Dashboard = () => {
     { id: 'profile', name: 'Profile', icon: User }
   ];
 
+  const createAndShareRoom = async () => {
+    const uniqueId = Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+    const roomId = `room_${uniqueId}`;
+    const link = `${window.location.origin}/interview/${roomId}`;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(link);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      // Navigate to the room after copying the link
+      navigate(`/interview/${roomId}`);
+    } catch (e) {
+      console.error('Failed to copy link, navigating anyway:', e);
+      navigate(`/interview/${roomId}`);
+    }
+  };
+
   return (
     <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50'}`}>
       {/* Header */}
@@ -345,6 +371,24 @@ const Dashboard = () => {
                         </div>
                       </button>
                       
+                      <button 
+                        onClick={createAndShareRoom}
+                        className="group relative overflow-hidden p-6 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl border-2 border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 dark:hover:border-emerald-600 hover:shadow-xl hover:scale-105 transition-all duration-300"
+                      >
+                        <div className="absolute inset-0 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 dark:from-emerald-500/20 dark:to-teal-500/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                        <div className="relative text-center">
+                          <div className="w-16 h-16 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg group-hover:rotate-12 transition-transform duration-300">
+                            <Users className="w-8 h-8 text-white" />
+                          </div>
+                          <h4 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-2">Create Room Link</h4>
+                          <p className="text-gray-600 dark:text-gray-400 mb-4">Copy link and join instantly</p>
+                          <div className="inline-flex items-center space-x-2 text-emerald-700 dark:text-emerald-400 font-medium group-hover:text-emerald-800 dark:group-hover:text-emerald-300">
+                            <span>Create & Copy</span>
+                            <div className="w-4 h-4 border-2 border-emerald-600 dark:border-emerald-400 border-t-transparent rounded-full animate-spin group-hover:animate-none"></div>
+                          </div>
+                        </div>
+                      </button>
+
                       <button 
                         onClick={() => handleStartInterview('ai')}
                         className="group relative overflow-hidden p-6 bg-gradient-to-br from-purple-50 to-pink-50 dark:from-purple-900/20 dark:to-pink-900/20 rounded-2xl border-2 border-purple-200 dark:border-purple-800 hover:border-purple-400 dark:hover:border-purple-600 hover:shadow-xl hover:scale-105 transition-all duration-300"
