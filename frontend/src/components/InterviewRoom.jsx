@@ -123,25 +123,52 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
         // Handle remote stream
         peerConnectionRef.current.ontrack = (event) => {
-          remoteVideoRef.current.srcObject = event.streams[0];
+          console.log('🎥 Remote track received!', event.streams[0]);
+          if (remoteVideoRef.current) {
+            remoteVideoRef.current.srcObject = event.streams[0];
+            console.log('✅ Remote video set');
+          }
         };
 
         // Handle ICE candidates
         peerConnectionRef.current.onicecandidate = (event) => {
           if (event.candidate) {
+            console.log('🧊 Sending ICE candidate');
             socket.emit('iceCandidate', { roomId, candidate: event.candidate });
           }
+        };
+
+        // Handle connection state changes
+        peerConnectionRef.current.onconnectionstatechange = () => {
+          console.log('🔗 Connection state:', peerConnectionRef.current.connectionState);
+        };
+
+        // Handle ICE connection state changes
+        peerConnectionRef.current.oniceconnectionstatechange = () => {
+          console.log('🧊 ICE connection state:', peerConnectionRef.current.iceConnectionState);
         };
       }
 
       // Try to get user media; proceed without it if blocked/unavailable
       try {
+        // Check if mediaDevices API is available
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          console.warn('getUserMedia is not supported in this browser');
+          setIsVideoOn(false);
+          setIsAudioOn(false);
+          return;
+        }
+        
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
         stream.getTracks().forEach(track => peerConnectionRef.current.addTrack(track, stream));
+        setIsVideoOn(true);
+        setIsAudioOn(true);
       } catch (mediaError) {
         console.log('Proceeding without local media:', mediaError?.name || mediaError);
+        setIsVideoOn(false);
+        setIsAudioOn(false);
       }
 
     } catch (error) {
@@ -151,19 +178,25 @@ const InterviewRoom = ({ roomId, onClose }) => {
   };
 
   const handleRoomJoined = async (data) => {
+    console.log('🏠 Room joined:', data);
     setRoomStatus('connected');
     setParticipants(data.participants);
     setIsInitiator(Boolean(data.isInitiator));
     try {
       // Ensure media and RTCPeerConnection are ready
       if (!peerConnectionRef.current || !localStreamRef.current) {
+        console.log('Initializing WebRTC...');
         await initializeWebRTC();
       }
       // If initiator, create and send offer
       if (data.isInitiator && peerConnectionRef.current) {
+        console.log('📤 Creating and sending offer (I am initiator)');
         const offer = await peerConnectionRef.current.createOffer();
         await peerConnectionRef.current.setLocalDescription(offer);
         socket.emit('offer', { roomId, offer });
+        console.log('✅ Offer sent');
+      } else {
+        console.log('⏳ Waiting for offer (I am NOT initiator)');
       }
     } catch (e) {
       console.error('Error handling room join/init offer:', e);
@@ -190,28 +223,40 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
   const handleOffer = async (payload) => {
     try {
+      console.log('📥 Received offer');
       const { offer } = payload || {};
-      if (!offer) return;
+      if (!offer) {
+        console.error('No offer in payload');
+        return;
+      }
       await peerConnectionRef.current.setRemoteDescription(offer);
+      console.log('✅ Set remote description (offer)');
       const answer = await peerConnectionRef.current.createAnswer();
       await peerConnectionRef.current.setLocalDescription(answer);
+      console.log('📤 Sending answer');
       
       socket.emit('answer', {
         roomId,
         answer
       });
+      console.log('✅ Answer sent');
     } catch (error) {
-      console.error('Error handling offer:', error);
+      console.error('❌ Error handling offer:', error);
     }
   };
 
   const handleAnswer = async (payload) => {
     try {
+      console.log('📥 Received answer');
       const { answer } = payload || {};
-      if (!answer) return;
+      if (!answer) {
+        console.error('No answer in payload');
+        return;
+      }
       await peerConnectionRef.current.setRemoteDescription(answer);
+      console.log('✅ Set remote description (answer) - connection should be establishing');
     } catch (error) {
-      console.error('Error handling answer:', error);
+      console.error('❌ Error handling answer:', error);
     }
   };
 
@@ -219,9 +264,11 @@ const InterviewRoom = ({ roomId, onClose }) => {
     try {
       const { candidate } = payload || {};
       if (!candidate) return;
+      console.log('🧊 Received ICE candidate');
       await peerConnectionRef.current.addIceCandidate(candidate);
+      console.log('✅ Added ICE candidate');
     } catch (error) {
-      console.error('Error handling ICE candidate:', error);
+      console.error('❌ Error handling ICE candidate:', error);
     }
   };
 
@@ -232,6 +279,13 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
   const toggleVideo = async () => {
     try {
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        console.error('getUserMedia is not supported in this browser');
+        alert('Camera access is not available. Please use HTTPS or a supported browser.');
+        return;
+      }
+      
       if (!localStreamRef.current) {
         // If no stream exists, try to get one
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -280,6 +334,13 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
   const toggleScreenShare = async () => {
     try {
+      // Check if mediaDevices API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+        console.error('Screen sharing is not supported in this browser');
+        alert('Screen sharing is not available. Please use a supported browser.');
+        return;
+      }
+      
       if (!isScreenSharing) {
         // Start screen sharing
         const screenStream = await navigator.mediaDevices.getDisplayMedia({

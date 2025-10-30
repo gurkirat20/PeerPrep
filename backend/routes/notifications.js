@@ -59,3 +59,4 @@ router.patch('/mark-all-read', authenticateToken, async (req, res) => {
 export default router;
 
 
+

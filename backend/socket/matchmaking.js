@@ -68,8 +68,28 @@ const createInterviewSession = async (user1, user2, preferences) => {
   }
 };
 
+// Clean up stale queue entries on server startup
+const cleanupStaleQueueEntries = async () => {
+  try {
+    // Remove all queue entries older than 1 hour or from previous server sessions
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const result = await MatchmakingQueue.deleteMany({
+      $or: [
+        { lastPing: { $lt: oneHourAgo } },
+        { status: 'waiting' } // Clear all waiting entries on startup
+      ]
+    });
+    console.log(`🧹 Cleaned up ${result.deletedCount} stale queue entries`);
+  } catch (error) {
+    console.error('Error cleaning up stale queue entries:', error);
+  }
+};
+
 // Socket.IO connection handling
-export const setupMatchmaking = () => {
+export const setupMatchmaking = async () => {
+  // Clean up stale entries on startup
+  await cleanupStaleQueueEntries();
+  
   io.on('connection', (socket) => {
     console.log('🔌 User connected:', socket.id);
 
@@ -123,7 +143,21 @@ export const setupMatchmaking = () => {
         // Try to find a match immediately using enhanced algorithm
         const matchResult = await findBestMatch(activeQueues.get(userId));
         if (matchResult) {
-          await handleMatchFound(userId, matchResult.match.userId.toString(), matchResult);
+          console.log('✅ Match result found:', matchResult.compatibilityScore?.toFixed(1) + '%');
+          
+          // Extract the actual user ID from the populated document
+          const matchedUserIdObj = matchResult.match.userId;
+          const matchedUserId = (matchedUserIdObj._id || matchedUserIdObj).toString();
+          
+          // CRITICAL: Verify the matched user is actually connected (in activeQueues)
+          // Database can have stale entries from disconnected users
+          if (activeQueues.has(matchedUserId)) {
+            await handleMatchFound(userId, matchedUserId, matchResult);
+          } else {
+            console.log('⚠️  Found match in DB but user is not connected, skipping. ID:', matchedUserId);
+            // Clean up stale database entry
+            await MatchmakingQueue.findOneAndDelete({ userId: matchedUserId });
+          }
         }
 
       } catch (error) {
@@ -260,7 +294,18 @@ export const setupMatchmaking = () => {
           const userQueue = activeQueues.get(userId);
           const match = await findMatch(userQueue);
           if (match) {
-            await handleMatchFound(userId, match.userId.toString());
+            console.log('match', match);
+            await handleMatchFound(userId, match.userId.toString(), match);
+            // // Extract the actual user ID from the populated document
+            // const matchedUserIdObj = match.userId;
+            // const matchedUserId = (matchedUserIdObj._id || matchedUserIdObj).toString();
+            // // Verify matched user is actually connected
+            // if (activeQueues.has(matchedUserId)) {
+            //   await handleMatchFound(userId, matchedUserId);
+            // } else {
+            //   console.log('⚠️  Found match in DB but user is not connected, cleaning up. ID:', matchedUserId);
+            //   await MatchmakingQueue.findOneAndDelete({ userId: matchedUserId });
+            // }
           }
         }
 
@@ -268,7 +313,16 @@ export const setupMatchmaking = () => {
           const otherUserQueue = activeQueues.get(otherUserId);
           const match = await findMatch(otherUserQueue);
           if (match) {
-            await handleMatchFound(otherUserId, match.userId.toString());
+            // Extract the actual user ID from the populated document
+            const matchedUserIdObj = match.userId;
+            const matchedUserId = (matchedUserIdObj._id || matchedUserIdObj).toString();
+            // Verify matched user is actually connected
+            if (activeQueues.has(matchedUserId)) {
+              await handleMatchFound(otherUserId, matchedUserId);
+            } else {
+              console.log('⚠️  Found match in DB but user is not connected, cleaning up. ID:', matchedUserId);
+              await MatchmakingQueue.findOneAndDelete({ userId: matchedUserId });
+            }
           }
         }
 
@@ -280,10 +334,51 @@ export const setupMatchmaking = () => {
     // Handle match found with enhanced compatibility data
     const handleMatchFound = async (userId1, userId2, matchResult = null) => {
       try {
-        const user1Queue = activeQueues.get(userId1);
-        const user2Queue = activeQueues.get(userId2);
-
-        if (!user1Queue || !user2Queue) return;
+        console.log('🔄 Handling match found:', userId1, 'with', userId2);
+        console.log('   userId1 type:', typeof userId1, 'userId2 type:', typeof userId2);
+        
+        // Ensure both IDs are strings (handle ObjectId cases)
+        const userId1Str = userId1.toString ? userId1.toString() : userId1;
+        const userId2Str = userId2.toString ? userId2.toString() : userId2;
+        
+        // ATOMIC OPERATION: Try to get and IMMEDIATELY remove both users from queue
+        // This prevents race condition where both matches try to pair the same users
+        const user1Queue = activeQueues.get(userId1Str);
+        const user2Queue = activeQueues.get(userId2Str);
+        
+        console.log('   User1 queue exists:', !!user1Queue, 'User2 queue exists:', !!user2Queue);
+        
+        if (!user1Queue || !user2Queue) {
+          console.log('❌ User queue not found (possibly already matched)');
+          console.log('   Looking for User1:', userId1Str);
+          console.log('   Looking for User2:', userId2Str);
+          console.log('   Active queues:', Array.from(activeQueues.keys()));
+          console.log('   User1 in activeQueues?', activeQueues.has(userId1Str));
+          console.log('   User2 in activeQueues?', activeQueues.has(userId2Str));
+          
+          // Check if match came from database but user is offline
+          if (!user2Queue) {
+            console.log('⚠️  User2 found in DB but not in activeQueues - may be stale queue entry');
+          }
+          return;
+        }
+        
+        // IMMEDIATELY remove from active queues to prevent duplicate matching
+        // This is the critical atomic operation that prevents race conditions
+        activeQueues.delete(userId1Str);
+        activeQueues.delete(userId2Str);
+        console.log('✅ Creating match between users:', userId1Str, userId2Str);
+        
+        // Check if either user is already in a pending match (extra safety)
+        const existingMatch = Array.from(pendingMatches.values()).find(match => 
+          match.user1.user === userId1Str || match.user1.user === userId2Str ||
+          match.user2.user === userId1Str || match.user2.user === userId2Str
+        );
+        
+        if (existingMatch) {
+          console.log('Users already in pending match (should not happen), skipping duplicate');
+          return;
+        }
 
         // Create match with compatibility data
         const matchId = `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -341,9 +436,7 @@ export const setupMatchmaking = () => {
           user2Socket.emit('startCall', { roomId });
         }
 
-        // Remove from active queues temporarily
-        activeQueues.delete(userId1);
-        activeQueues.delete(userId2);
+        // Users already removed from active queues at the start
 
       } catch (error) {
         console.error('Error handling match found:', error);

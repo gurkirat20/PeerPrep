@@ -118,36 +118,38 @@ class MatchmakingService {
 
   async findMatches(queueEntry) {
     try {
+      console.log('Finding matches for user:', queueEntry.userId);
       const compatibleMatches = await MatchmakingQueue.findCompatibleMatches(
         queueEntry.userId,
         queueEntry.preferences
       );
+      await this.proposeMatch(queueEntry, compatibleMatches[0], 0);
 
-      if (compatibleMatches.length === 0) {
-        // No matches found, wait and try again
-        setTimeout(() => this.findMatches(queueEntry), 5000);
-        return;
-      }
+      // if (compatibleMatches.length === 0) {
+      //   // No matches found, wait and try again
+      //   setTimeout(() => this.findMatches(queueEntry), 5000);
+      //   return;
+      // }
 
-      // Find best match
-      let bestMatch = null;
-      let bestScore = 0;
+      // // Find best match
+      // let bestMatch = null;
+      // let bestScore = 0;
 
-      for (const match of compatibleMatches) {
-        const compatibilityScore = MatchmakingQueue.calculateCompatibility(queueEntry, match);
+      // for (const match of compatibleMatches) {
+      //   const compatibilityScore = MatchmakingQueue.calculateCompatibility(queueEntry, match);
         
-        if (compatibilityScore > bestScore) {
-          bestScore = compatibilityScore;
-          bestMatch = match;
-        }
-      }
+      //   if (compatibilityScore > bestScore) {
+      //     bestScore = compatibilityScore;
+      //     bestMatch = match;
+      //   }
+      // }
 
-      if (bestMatch && bestScore >= 60) { // Minimum compatibility threshold
-        await this.proposeMatch(queueEntry, bestMatch, bestScore);
-      } else {
-        // No suitable match found, wait and try again
-        setTimeout(() => this.findMatches(queueEntry), 10000);
-      }
+      // if (bestMatch && bestScore >= 0) { // Minimum compatibility threshold
+      //   await this.proposeMatch(queueEntry, bestMatch, bestScore);
+      // } else {
+      //   // No suitable match found, wait and try again
+      //   setTimeout(() => this.findMatches(queueEntry), 10000);
+      // }
     } catch (error) {
       console.error('Error finding matches:', error);
     }

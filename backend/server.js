@@ -4,10 +4,11 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { createServer } from 'http';
+import { createServer } from 'https';  // Changed from 'http' to 'https'
 import { Server } from 'socket.io';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
+import fs from 'fs';
 
 // Import database connection
 import connectDB from './config/database.js';
@@ -36,8 +37,13 @@ import { setupWebRTCSignaling } from './socket/webrtc.js';
 // Connect to MongoDB
 connectDB();
 
+const credentials = {
+  key: fs.readFileSync('./172.20.10.2+1-key.pem'),
+  cert: fs.readFileSync('./172.20.10.2+1.pem'),
+};
+
 const app = express();
-const server = createServer(app);
+const server = createServer(credentials, app);
 
 // Support multiple frontend origins (comma-separated)
 const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:5173";
@@ -117,9 +123,12 @@ io.use(async (socket, next) => {
 const matchmakingService = new MatchmakingService(io);
 matchmakingService.startCleanupInterval();
 
-// Setup socket handlers
-setupMatchmaking();
-setupWebRTCSignaling(io);
+// Setup socket handlers (async to clean up stale entries)
+(async () => {
+  await setupMatchmaking();
+  setupWebRTCSignaling(io);
+  console.log('✅ Socket handlers initialized');
+})();
 
 // Error handling middleware
 app.use(errorHandler);
@@ -132,8 +141,9 @@ app.use('*', (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Server running on HTTPS port ${PORT}`);
   console.log(`📱 Allowed Frontends: ${allowedOrigins.join(', ')}`);
+  console.log(`🔒 SSL enabled with certificates`);
 });
 
 export { io };

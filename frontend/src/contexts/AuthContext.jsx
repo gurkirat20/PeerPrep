@@ -4,7 +4,8 @@ import axios from 'axios';
 const AuthContext = createContext();
 
 // Configure axios defaults
-axios.defaults.baseURL = '/api';
+const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://172.20.10.2:3001';
+axios.defaults.baseURL = `${backendUrl}/api`;
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

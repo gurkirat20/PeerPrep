@@ -150,13 +150,13 @@ export const NotificationProvider = ({ children }) => {
         _id: `match_${Date.now()}`,
         type: 'match_found',
         title: 'Match Found! 🎉',
-        message: `You've been matched with ${data.match.name} for a peer interview. Get ready to start!`,
+        message: `You've been matched with a ${data.opponentRole || 'peer'} for a peer interview. Get ready to start!`,
         data: {
-          actionUrl: `/interview/${data.match.sessionId}`,
+          actionUrl: `/interview/${data.roomId}`,
           actionText: 'Join Interview',
-          matchedUserId: data.match.userId,
-          matchedUserName: data.match.name,
-          sessionId: data.match.sessionId
+          matchedUserId: data.partner,
+          matchedUserName: data.opponentRole || 'Peer',
+          sessionId: data.roomId
         },
         isRead: false,
         createdAt: new Date(),
