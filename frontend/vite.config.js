@@ -10,20 +10,17 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'https://172.20.10.2:3001',
+        target: 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
       },
       '/socket.io': {
-        target: 'https://172.20.10.2:3001',
+        target: 'http://localhost:3001',
         changeOrigin: true,
         ws: true,
         secure: false,
       },
     },
-    https:{
-      key: fs.readFileSync(path.join(__dirname, '172.20.10.2+1-key.pem')),
-      cert: fs.readFileSync(path.join(__dirname, '172.20.10.2+1.pem')),
-    }
+    // Use HTTP for local dev; remove HTTPS certs to avoid missing-file errors
   },
 })

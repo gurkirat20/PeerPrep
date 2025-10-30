@@ -3,9 +3,9 @@ import axios from 'axios';
 
 const AuthContext = createContext();
 
-// Configure axios defaults
-const backendUrl = import.meta.env.VITE_BACKEND_URL || 'https://172.20.10.2:3001';
-axios.defaults.baseURL = `${backendUrl}/api`;
+// Configure axios defaults: use relative '/api' in dev so Vite proxy handles it
+const configuredBackendUrl = import.meta.env.VITE_BACKEND_URL;
+axios.defaults.baseURL = configuredBackendUrl ? `${configuredBackendUrl}/api` : '/api';
 
 export const useAuth = () => {
   const context = useContext(AuthContext);

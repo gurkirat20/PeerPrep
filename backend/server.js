@@ -4,11 +4,11 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { createServer } from 'https';  // Changed from 'http' to 'https'
+import { createServer } from 'http';
 import { Server } from 'socket.io';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import fs from 'fs';
+// no fs needed in HTTP mode
 
 // Import database connection
 import connectDB from './config/database.js';
@@ -37,13 +37,8 @@ import { setupWebRTCSignaling } from './socket/webrtc.js';
 // Connect to MongoDB
 connectDB();
 
-const credentials = {
-  key: fs.readFileSync('./172.20.10.2+1-key.pem'),
-  cert: fs.readFileSync('./172.20.10.2+1.pem'),
-};
-
 const app = express();
-const server = createServer(credentials, app);
+const server = createServer(app);
 
 // Support multiple frontend origins (comma-separated)
 const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:5173";
@@ -141,9 +136,9 @@ app.use('*', (req, res) => {
 const PORT = process.env.PORT || 3001;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on HTTPS port ${PORT}`);
+  console.log(`🚀 Server running on HTTP port ${PORT}`);
   console.log(`📱 Allowed Frontends: ${allowedOrigins.join(', ')}`);
-  console.log(`🔒 SSL enabled with certificates`);
+  console.log(`🔓 Running over HTTP for local development`);
 });
 
 export { io };

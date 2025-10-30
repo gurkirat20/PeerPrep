@@ -28,7 +28,10 @@ export const SocketProvider = ({ children }) => {
       // Connect to Socket.IO backend directly to avoid proxy issues
       // Prefer URL from localStorage so both peers can target the same signaling server (e.g., ngrok)
       const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('BACKEND_URL') : null;
-      const backendUrl = storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      // In dev, force localhost backend to avoid stale ngrok/custom URLs
+      const backendUrl = import.meta.env.DEV
+        ? 'http://localhost:3001'
+        : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001');
       console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
       const socketOptions = {
