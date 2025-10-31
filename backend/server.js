@@ -40,8 +40,13 @@ connectDB();
 const app = express();
 const server = createServer(app);
 
+// When behind a reverse proxy (Render, Railway, etc.), trust proxy so req.ip is correct
+if (process.env.NODE_ENV !== 'development') {
+  app.set('trust proxy', 1);
+}
+
 // Support multiple frontend origins (comma-separated)
-const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:5173";
+const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "FRONTEND_URL";
 const allowedOrigins = rawOrigins.split(',').map(o => o.trim()).filter(Boolean);
 
 const io = new Server(server, {
