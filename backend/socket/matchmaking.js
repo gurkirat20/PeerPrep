@@ -86,10 +86,57 @@ const cleanupStaleQueueEntries = async () => {
   }
 };
 
+// Periodic cleanup of stale entries
+const periodicCleanup = async () => {
+  try {
+    // Clean up activeQueues entries where socket is disconnected
+    for (const [userId, queueData] of activeQueues.entries()) {
+      const socket = io.sockets.sockets.get(queueData.socketId);
+      if (!socket || !socket.connected) {
+        console.log(`🧹 Periodic cleanup: Removing stale activeQueues entry for user ${userId}`);
+        activeQueues.delete(userId);
+        await MatchmakingQueue.findOneAndDelete({ userId: userId });
+      }
+    }
+    
+    // Clean up pendingMatches where sockets are disconnected
+    for (const [matchId, match] of pendingMatches.entries()) {
+      const user1Socket = io.sockets.sockets.get(match.user1?.socketId);
+      const user2Socket = io.sockets.sockets.get(match.user2?.socketId);
+      
+      if (!user1Socket || !user1Socket.connected || !user2Socket || !user2Socket.connected) {
+        console.log(`🧹 Periodic cleanup: Removing stale pending match ${matchId}`);
+        
+        // Notify connected user if one is still connected
+        if (user1Socket && user1Socket.connected) {
+          user1Socket.emit('matchCancelled', { reason: 'Partner disconnected' });
+          const userId = match.user1.user?.toString?.() || match.user1.user;
+          if (userId && !activeQueues.has(userId)) {
+            activeQueues.set(userId, match.user1);
+          }
+        } else if (user2Socket && user2Socket.connected) {
+          user2Socket.emit('matchCancelled', { reason: 'Partner disconnected' });
+          const userId = match.user2.user?.toString?.() || match.user2.user;
+          if (userId && !activeQueues.has(userId)) {
+            activeQueues.set(userId, match.user2);
+          }
+        }
+        
+        pendingMatches.delete(matchId);
+      }
+    }
+  } catch (error) {
+    console.error('Error in periodic cleanup:', error);
+  }
+};
+
 // Socket.IO connection handling
 export const setupMatchmaking = async () => {
   // Clean up stale entries on startup
   await cleanupStaleQueueEntries();
+  
+  // Run periodic cleanup every 30 seconds
+  setInterval(periodicCleanup, 30000);
   
   io.on('connection', (socket) => {
     console.log('🔌 User connected:', socket.id);
@@ -120,16 +167,52 @@ export const setupMatchmaking = async () => {
         
         console.log('✅ User verified for joinQueue:', userId);
 
-        // CRITICAL: Clean up any stale entries with old socketId for this user before upserting
+        // CRITICAL: Clean up any stale entries for this user before joining
         // This handles cases where disconnect didn't properly clean up
+        
+        // Remove from activeQueues if exists with different socketId
+        if (activeQueues.has(userId)) {
+          const existingQueue = activeQueues.get(userId);
+          if (existingQueue.socketId !== socket.id) {
+            console.log(`🧹 Removing stale activeQueues entry for user ${userId} (old socket: ${existingQueue.socketId})`);
+            activeQueues.delete(userId);
+          }
+        }
+        
+        // Clean up database entry with old socketId
         const staleEntry = await MatchmakingQueue.findOne({ userId: userId });
         if (staleEntry && staleEntry.socketId && staleEntry.socketId !== socket.id) {
-          console.log(`🧹 Cleaning up stale entry with old socketId for user ${userId}`);
-          // Try to get the socket - if it exists, just update; if not, delete the stale entry
+          console.log(`🧹 Cleaning up stale DB entry with old socketId for user ${userId}`);
           const oldSocket = io.sockets.sockets.get(staleEntry.socketId);
           if (!oldSocket || !oldSocket.connected) {
             console.log(`   Old socket ${staleEntry.socketId} not connected, removing stale entry`);
             await MatchmakingQueue.findOneAndDelete({ userId: userId });
+          }
+        }
+        
+        // Clean up any pending matches this user is already in (they're re-joining)
+        const userIdStr = userId.toString();
+        for (const [matchId, match] of pendingMatches.entries()) {
+          const matchUser1Id = match.user1.user?.toString?.() || match.user1.user;
+          const matchUser2Id = match.user2.user?.toString?.() || match.user2.user;
+          
+          if (matchUser1Id === userIdStr || matchUser2Id === userIdStr) {
+            console.log(`🧹 Cleaning up existing pending match ${matchId} before re-joining queue`);
+            pendingMatches.delete(matchId);
+            
+            // Notify other user if still connected
+            const otherQueue = matchUser1Id === userIdStr ? match.user2 : match.user1;
+            const otherUserId = matchUser1Id === userIdStr ? matchUser2Id : matchUser1Id;
+            if (otherQueue?.socketId) {
+              const otherSocket = io.sockets.sockets.get(otherQueue.socketId);
+              if (otherSocket && otherSocket.connected) {
+                otherSocket.emit('matchCancelled', { reason: 'Partner left queue' });
+                // Return other user to activeQueues if not already there
+                if (otherUserId && !activeQueues.has(otherUserId)) {
+                  activeQueues.set(otherUserId, otherQueue);
+                }
+              }
+            }
           }
         }
 
@@ -412,14 +495,34 @@ export const setupMatchmaking = async () => {
         console.log('✅ Creating match between users:', userId1Str, userId2Str);
         
         // Check if either user is already in a pending match (extra safety)
-        const existingMatch = Array.from(pendingMatches.values()).find(match => 
-          match.user1.user === userId1Str || match.user1.user === userId2Str ||
-          match.user2.user === userId1Str || match.user2.user === userId2Str
-        );
+        const existingMatch = Array.from(pendingMatches.values()).find(match => {
+          const matchUser1Id = match.user1.user?.toString?.() || match.user1.user;
+          const matchUser2Id = match.user2.user?.toString?.() || match.user2.user;
+          return matchUser1Id === userId1Str || matchUser1Id === userId2Str ||
+                 matchUser2Id === userId1Str || matchUser2Id === userId2Str;
+        });
         
         if (existingMatch) {
-          console.log('Users already in pending match (should not happen), skipping duplicate');
-          return;
+          console.log('⚠️ Users already in pending match, cleaning up old match and creating new one');
+          // Clean up the existing match (likely stale)
+          const matchUser1Id = existingMatch.user1.user?.toString?.() || existingMatch.user1.user;
+          const matchUser2Id = existingMatch.user2.user?.toString?.() || existingMatch.user2.user;
+          
+          // Check if users are actually connected
+          const user1Connected = activeQueues.has(matchUser1Id);
+          const user2Connected = activeQueues.has(matchUser2Id);
+          
+          if (!user1Connected || !user2Connected) {
+            console.log('   Old match has disconnected users, removing it');
+            pendingMatches.delete(existingMatch.matchId);
+            // Continue with new match creation
+          } else {
+            console.log('   Both users still connected, skipping duplicate match');
+            // Restore them to activeQueues since we deleted them above
+            activeQueues.set(userId1Str, user1Queue);
+            activeQueues.set(userId2Str, user2Queue);
+            return;
+          }
         }
 
         // Create match with compatibility data
@@ -525,12 +628,67 @@ export const setupMatchmaking = async () => {
         }
 
         if (userId) {
-          // Remove from queue
+          console.log('🔌 User disconnecting:', socket.id, 'userId:', userId);
+          
+          // Remove from database queue
           await MatchmakingQueue.findOneAndDelete({ userId: userId });
+          
+          // Remove from active queues
           activeQueues.delete(userId);
-          console.log('🔌 User disconnected:', socket.id, 'userId:', userId);
+          
+          // Clean up any pending matches this user is in
+          const userIdStr = userId.toString();
+          for (const [matchId, match] of pendingMatches.entries()) {
+            const matchUser1Id = match.user1.user?.toString?.() || match.user1.user;
+            const matchUser2Id = match.user2.user?.toString?.() || match.user2.user;
+            
+            if (matchUser1Id === userIdStr || matchUser2Id === userIdStr) {
+              console.log(`🧹 Cleaning up pending match ${matchId} for disconnected user ${userIdStr}`);
+              
+              // Notify the other user if they're still connected
+              const otherUserId = matchUser1Id === userIdStr ? matchUser2Id : matchUser1Id;
+              const otherQueue = matchUser1Id === userIdStr ? match.user2 : match.user1;
+              
+              if (otherQueue?.socketId) {
+                const otherSocket = io.sockets.sockets.get(otherQueue.socketId);
+                if (otherSocket && otherSocket.connected) {
+                  otherSocket.emit('matchCancelled', { reason: 'Partner disconnected' });
+                  // Return other user to queue
+                  if (otherUserId && activeQueues.has(otherUserId)) {
+                    // Keep in queue, they'll get matched again
+                  } else {
+                    // Re-add to activeQueues if not there
+                    activeQueues.set(otherUserId, otherQueue);
+                  }
+                }
+              }
+              
+              // Remove the pending match
+              pendingMatches.delete(matchId);
+            }
+          }
+          
+          console.log('✅ Cleaned up user on disconnect:', userId);
         } else {
           console.log('🔌 Socket disconnected (no active queue entry):', socket.id);
+          
+          // Still check pending matches by socketId to clean up orphaned matches
+          for (const [matchId, match] of pendingMatches.entries()) {
+            if (match.user1?.socketId === socket.id || match.user2?.socketId === socket.id) {
+              console.log(`🧹 Cleaning up orphaned pending match ${matchId} for disconnected socket ${socket.id}`);
+              
+              // Notify the other user if still connected
+              const otherQueue = match.user1?.socketId === socket.id ? match.user2 : match.user1;
+              if (otherQueue?.socketId) {
+                const otherSocket = io.sockets.sockets.get(otherQueue.socketId);
+                if (otherSocket && otherSocket.connected) {
+                  otherSocket.emit('matchCancelled', { reason: 'Partner disconnected' });
+                }
+              }
+              
+              pendingMatches.delete(matchId);
+            }
+          }
         }
       } catch (error) {
         console.error('Error handling disconnect:', error);
