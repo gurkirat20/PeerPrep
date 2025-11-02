@@ -102,8 +102,37 @@ export const setupMatchmaking = async () => {
       try {
         const userId = socket.userId;
         if (!userId) {
-          socket.emit('error', { message: 'Authentication required' });
-          return;
+          console.warn('⚠️ joinQueue called but socket.userId not set. Socket auth:', {
+            hasAuth: !!socket.handshake.auth,
+            hasToken: !!socket.handshake.auth?.token,
+            socketId: socket.id
+          });
+          
+          // Try to authenticate from token in handshake if available
+          const token = socket.handshake.auth?.token;
+          if (token) {
+            try {
+              const jwt = await import('jsonwebtoken');
+              const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+              const User = (await import('../models/User.js')).default;
+              const user = await User.findById(decoded.userId).select('-password');
+              if (user) {
+                socket.userId = user._id.toString();
+                socket.user = user;
+                console.log('✅ Authenticated socket on joinQueue:', socket.userId);
+              } else {
+                socket.emit('error', { message: 'Authentication required - user not found' });
+                return;
+              }
+            } catch (error) {
+              console.error('❌ Token verification failed in joinQueue:', error.message);
+              socket.emit('error', { message: 'Authentication required - invalid token' });
+              return;
+            }
+          } else {
+            socket.emit('error', { message: 'Authentication required' });
+            return;
+          }
         }
 
         // CRITICAL: Clean up any stale entries with old socketId for this user before upserting

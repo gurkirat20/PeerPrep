@@ -23,14 +23,25 @@ export const SocketProvider = ({ children }) => {
   const [queueStatus, setQueueStatus] = useState(null);
   const [matchFound, setMatchFound] = useState(null);
   const socketInitialized = useRef(false);
+  const pendingJoinQueue = useRef(null); // Store pending joinQueue call
 
   // Effect to manage socket connection based on auth state
   useEffect(() => {
     const onInterviewRoute = location.pathname.startsWith('/interview/');
     const shouldConnect = (isAuthenticated && user) || onInterviewRoute;
     
-    // Only create socket once if we should connect and haven't initialized yet
+    console.log('Socket useEffect', { 
+      isAuthenticated, 
+      hasUser: !!user, 
+      onInterviewRoute, 
+      shouldConnect, 
+      socketInitialized: socketInitialized.current, 
+      hasSocket: !!socket 
+    });
+    
+    // Create socket if we should connect and haven't initialized yet
     if (shouldConnect && !socketInitialized.current && !socket) {
+      console.log('🔌 Initializing socket connection...');
       // Connect to Socket.IO backend directly to avoid proxy issues
       // Prefer URL from localStorage so both peers can target the same signaling server (e.g., ngrok)
       const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('BACKEND_URL') : null;
@@ -85,20 +96,25 @@ export const SocketProvider = ({ children }) => {
           console.error('❌ Authentication required for socket operations');
           const currentToken = getToken();
           console.error('Token available:', !!currentToken);
-          // Try to reconnect with token if disconnected
+          
           if (currentToken) {
-            console.log('🔄 Reconnecting socket with token...');
-            newSocket.auth = { token: currentToken };
-            if (newSocket.disconnected) {
-              newSocket.connect();
-            } else {
-              // If connected but not authenticated, disconnect and reconnect
-              newSocket.disconnect();
-              setTimeout(() => {
-                newSocket.auth = { token: currentToken };
-                newSocket.connect();
-              }, 1000);
-            }
+            console.log('🔄 Authentication failed, reconnecting socket with token...');
+            // Fully disconnect and recreate socket with token
+            newSocket.disconnect();
+            newSocket.removeAllListeners();
+            
+            // Reset initialization flag to allow reconnection
+            socketInitialized.current = false;
+            setSocket(null);
+            setIsConnected(false);
+            
+            // Reconnect after a short delay
+            setTimeout(() => {
+              console.log('🔄 Attempting to reconnect with authentication...');
+              // The useEffect will handle reconnection when socket becomes null
+              // But we need to trigger it, so clear the socket state
+              setSocket(null);
+            }, 1000);
           }
         }
       });
@@ -113,11 +129,19 @@ export const SocketProvider = ({ children }) => {
         console.log('🔌 Connected to server');
         setIsConnected(true);
         
-        // Verify token is still in auth after connection
-        const currentToken = getToken();
-        if (currentToken && !newSocket.auth?.token) {
-          console.log('🔐 Re-adding token to socket auth after connection');
-          newSocket.auth = { token: currentToken };
+        // Note: socket.auth is only used during handshake, not after connection
+        // If we need to verify auth, we should emit a test event or check server response
+        
+        // If there's a pending joinQueue call, execute it now
+        if (pendingJoinQueue.current) {
+          console.log('🔄 Executing pending joinQueue after connection');
+          const preferences = pendingJoinQueue.current;
+          pendingJoinQueue.current = null;
+          // Wait a bit for server to finish authentication setup
+          setTimeout(() => {
+            console.log('📤 Emitting pending joinQueue with preferences:', preferences);
+            newSocket.emit('joinQueue', preferences);
+          }, 500);
         }
       });
 
@@ -176,6 +200,11 @@ export const SocketProvider = ({ children }) => {
 
       setSocket(newSocket);
       socketInitialized.current = true;
+      console.log('✅ Socket instance created and stored');
+    } else if (shouldConnect && socketInitialized.current && !socket) {
+      // Socket was initialized but lost - reset the flag to allow re-initialization
+      console.warn('⚠️ Socket was initialized but is now null, resetting flag');
+      socketInitialized.current = false;
     }
 
     // Cleanup: Only cleanup on logout or when leaving interview routes while not authenticated
@@ -197,7 +226,7 @@ export const SocketProvider = ({ children }) => {
   }, [isAuthenticated, user, location.pathname]); // Don't include socket to avoid re-renders
 
   const joinQueue = (preferences) => {
-    console.log('joinQueue called', { socket: !!socket, isConnected, preferences });
+    console.log('joinQueue called', { socket: !!socket, isConnected, isAuthenticated, user: !!user, preferences });
     
     // Check if user is authenticated - use centralized token utility
     const token = getToken();
@@ -207,52 +236,53 @@ export const SocketProvider = ({ children }) => {
       return;
     }
     
+    // If socket is not initialized, store the request and wait for initialization
     if (!socket) {
-      console.error('❌ Cannot join queue: Socket not initialized');
-      alert('Socket connection not ready. Please wait a moment and try again.');
+      console.warn('⚠️ Socket not initialized yet, storing joinQueue request...');
+      
+      // Check if we should be connected (user authenticated)
+      if (isAuthenticated && user) {
+        // Store preferences to retry once socket is ready
+        pendingJoinQueue.current = preferences;
+        console.log('⏳ Waiting for socket initialization via useEffect...');
+        // Socket will be created by useEffect, and on connect it will retry joinQueue
+        return;
+      } else {
+        console.error('❌ User not authenticated, cannot initialize socket');
+        alert('Please log in to join the matchmaking queue.');
+      }
       return;
     }
     
-    // Ensure token is in socket auth if not already
-    if (token && !socket.auth?.token) {
-      console.log('🔐 Adding token to socket auth');
-      socket.auth = { token };
-      // If disconnected, reconnect with auth
-      if (socket.disconnected) {
-        socket.connect();
-      }
-    }
+    // Clear any pending request since we have a socket now
+    pendingJoinQueue.current = null;
+    
+    // Note: socket.auth only works during initial handshake, not after connection
+    // If socket connected without proper auth, the backend will handle it in joinQueue
     
     if (!isConnected) {
       console.warn('⚠️ Socket not connected yet, waiting for connection...');
       // Wait for connection then emit
       const connectHandler = () => {
         console.log('✅ Socket connected, now joining queue');
-        // Ensure token is set before emitting
-        if (token && !socket.auth?.token) {
-          socket.auth = { token };
-        }
-        socket.emit('joinQueue', preferences);
+        // Small delay to ensure server has finished auth setup
+        setTimeout(() => {
+          socket.emit('joinQueue', preferences);
+        }, 500);
         socket.off('connect', connectHandler);
       };
       socket.on('connect', connectHandler);
       
-      // If already connecting, the handler will fire when connected
-      // If not connecting, try to connect with token
+      // If disconnected, try to connect (token should already be in socketOptions.auth)
       if (socket.disconnected) {
-        if (token) {
-          console.log('🔐 Setting token in socket auth before reconnecting');
-          socket.auth = { token };
-        }
         socket.connect();
       }
       return;
     }
     
     // Socket is connected - emit joinQueue
-    // If authentication fails, the error handler will catch it and reconnect
+    // Backend will verify authentication and set userId if token is valid
     console.log('📤 Emitting joinQueue with preferences:', preferences);
-    console.log('📤 Socket auth token present:', !!socket.auth?.token);
     socket.emit('joinQueue', preferences);
   };
 

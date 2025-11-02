@@ -132,7 +132,15 @@ io.use(async (socket, next) => {
     }
 
     const jwt = await import('jsonwebtoken');
-    const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+    let decoded;
+    try {
+      decoded = jwt.default.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      console.warn('⚠️ JWT verification failed:', jwtError.message);
+      // Still allow connection but log the issue
+      return next();
+    }
+    
     const User = (await import('./models/User.js')).default;
     const user = await User.findById(decoded.userId).select('-password');
     if (user) {
@@ -141,6 +149,7 @@ io.use(async (socket, next) => {
       console.log('✅ Socket authenticated for user:', socket.userId);
     } else {
       console.warn('⚠️ Token valid but user not found:', decoded.userId);
+      // Still allow connection but user won't be authenticated
     }
     return next();
   } catch (error) {

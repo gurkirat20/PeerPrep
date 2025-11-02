@@ -21,27 +21,28 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
       return;
     }
     
-    // Check socket connection
-    if (!socket) {
-      setError('Socket connection not ready. Please wait a moment and try again.');
-      return;
-    }
-    
-    if (!isConnected) {
-      setError('Connecting to server... Please wait.');
-      // The joinQueue function will handle waiting for connection
-    }
-    
     setError(null);
     setIsJoining(true);
+    
+    // Check socket connection - but joinQueue will handle waiting/retrying
+    if (!socket) {
+      setError('Initializing connection... Please wait.');
+      // joinQueue will wait and retry
+    } else if (!isConnected) {
+      setError('Connecting to server... Please wait.');
+    }
+    
     joinQueue(preferences);
     
     // Reset joining state after a delay if no queueStatus is received
     setTimeout(() => {
-      if (!queueStatus) {
+      if (!queueStatus && !isJoining) {
         setIsJoining(false);
+        if (!error) {
+          setError('Connection timeout. Please try again.');
+        }
       }
-    }, 3000);
+    }, 5000);
   };
 
   const handleLeaveQueue = () => {
