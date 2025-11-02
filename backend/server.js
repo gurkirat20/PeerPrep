@@ -120,8 +120,14 @@ app.get('/api/health', (req, res) => {
 io.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth?.token;
+    console.log('🔐 Socket connection attempt:', { 
+      hasToken: !!token, 
+      socketId: socket.id 
+    });
+    
     if (!token) {
       // Allow unauthenticated connections (e.g., public interview room links)
+      console.log('⚠️ Socket connecting without token (unauthenticated)');
       return next();
     }
 
@@ -132,10 +138,14 @@ io.use(async (socket, next) => {
     if (user) {
       socket.userId = user._id.toString();
       socket.user = user;
+      console.log('✅ Socket authenticated for user:', socket.userId);
+    } else {
+      console.warn('⚠️ Token valid but user not found:', decoded.userId);
     }
     return next();
   } catch (error) {
     // If token is invalid, still allow basic connection but without user context
+    console.warn('⚠️ Socket token verification failed:', error.message);
     return next();
   }
 });

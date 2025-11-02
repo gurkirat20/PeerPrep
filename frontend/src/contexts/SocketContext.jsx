@@ -40,6 +40,14 @@ export const SocketProvider = ({ children }) => {
       const backendUrl = import.meta.env.VITE_BACKEND_URL;
       console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
+      
+      // Log token status (don't log the actual token for security)
+      if (token) {
+        console.log('✅ Token found, including in socket auth');
+      } else {
+        console.warn('⚠️ No token found in localStorage - socket will connect without authentication');
+      }
+      
       const socketOptions = {
         // Try polling first, then upgrade to websocket (better for Render.com and reverse proxies)
         transports: ['polling', 'websocket'],
@@ -56,6 +64,9 @@ export const SocketProvider = ({ children }) => {
       };
       if (token) {
         socketOptions.auth = { token };
+        console.log('🔐 Socket auth configured with token');
+      } else {
+        console.warn('⚠️ Socket connecting without token - authentication may fail');
       }
       const newSocket = io(backendUrl, socketOptions);
       
@@ -67,8 +78,17 @@ export const SocketProvider = ({ children }) => {
       // Handle socket errors (like authentication failures)
       newSocket.on('error', (error) => {
         console.error('Socket error event:', error);
-        if (error.message === 'Authentication required') {
+        const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
+        if (errorMessage.includes('Authentication') || errorMessage.includes('auth')) {
           console.error('❌ Authentication required for socket operations');
+          console.error('Token available:', !!localStorage.getItem('token'));
+          // Try to refresh token or reconnect with token
+          const currentToken = localStorage.getItem('token');
+          if (currentToken && newSocket.disconnected) {
+            console.log('🔄 Attempting to reconnect with token...');
+            newSocket.auth = { token: currentToken };
+            newSocket.connect();
+          }
         }
       });
 
@@ -161,10 +181,28 @@ export const SocketProvider = ({ children }) => {
   const joinQueue = (preferences) => {
     console.log('joinQueue called', { socket: !!socket, isConnected, preferences });
     
+    // Check if user is authenticated
+    const token = localStorage.getItem('token');
+    if (!token) {
+      console.error('❌ Cannot join queue: No authentication token found');
+      alert('Please log in to join the matchmaking queue.');
+      return;
+    }
+    
     if (!socket) {
       console.error('❌ Cannot join queue: Socket not initialized');
       alert('Socket connection not ready. Please wait a moment and try again.');
       return;
+    }
+    
+    // Ensure token is in socket auth if not already
+    if (token && !socket.auth?.token) {
+      console.log('🔐 Adding token to socket auth');
+      socket.auth = { token };
+      // If disconnected, reconnect with auth
+      if (socket.disconnected) {
+        socket.connect();
+      }
     }
     
     if (!isConnected) {
@@ -172,20 +210,32 @@ export const SocketProvider = ({ children }) => {
       // Wait for connection then emit
       const connectHandler = () => {
         console.log('✅ Socket connected, now joining queue');
+        // Ensure token is set before emitting
+        if (token && !socket.auth?.token) {
+          socket.auth = { token };
+        }
         socket.emit('joinQueue', preferences);
         socket.off('connect', connectHandler);
       };
       socket.on('connect', connectHandler);
       
       // If already connecting, the handler will fire when connected
-      // If not connecting, try to connect
+      // If not connecting, try to connect with token
       if (socket.disconnected) {
+        if (token) {
+          socket.auth = { token };
+        }
         socket.connect();
       }
       return;
     }
     
-    // Socket is connected, emit immediately
+    // Socket is connected, ensure token is set, then emit
+    if (token && !socket.auth?.token) {
+      console.log('🔐 Adding token to existing socket connection');
+      socket.auth = { token };
+    }
+    
     console.log('📤 Emitting joinQueue with preferences:', preferences);
     socket.emit('joinQueue', preferences);
   };
