@@ -116,47 +116,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Socket.IO authentication middleware (optional auth)
+// Socket.IO middleware - no authentication required, all connections allowed
 io.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth?.token;
-    console.log('🔐 Socket connection attempt:', { 
-      hasToken: !!token, 
-      socketId: socket.id 
-    });
-    
-    if (!token) {
-      // Allow unauthenticated connections (e.g., public interview room links)
-      console.log('⚠️ Socket connecting without token (unauthenticated)');
-      return next();
-    }
-
-    const jwt = await import('jsonwebtoken');
-    let decoded;
-    try {
-      decoded = jwt.default.verify(token, process.env.JWT_SECRET);
-    } catch (jwtError) {
-      console.warn('⚠️ JWT verification failed:', jwtError.message);
-      // Still allow connection but log the issue
-      return next();
-    }
-    
-    const User = (await import('./models/User.js')).default;
-    const user = await User.findById(decoded.userId).select('-password');
-    if (user) {
-      socket.userId = user._id.toString();
-      socket.user = user;
-      console.log('✅ Socket authenticated for user:', socket.userId);
-    } else {
-      console.warn('⚠️ Token valid but user not found:', decoded.userId);
-      // Still allow connection but user won't be authenticated
-    }
-    return next();
-  } catch (error) {
-    // If token is invalid, still allow basic connection but without user context
-    console.warn('⚠️ Socket token verification failed:', error.message);
-    return next();
-  }
+  console.log('🔌 Socket connecting:', socket.id);
+  // Allow all connections - authentication will be handled per-event with userId
+  return next();
 });
 
 // Initialize matchmaking service

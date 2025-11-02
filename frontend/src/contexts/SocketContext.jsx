@@ -2,7 +2,6 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
-import { getToken } from '../utils/auth';
 
 const SocketContext = createContext();
 
@@ -51,15 +50,6 @@ export const SocketProvider = ({ children }) => {
       //   : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://10.143.143.182:3001');
       const backendUrl = import.meta.env.VITE_BACKEND_URL;
       console.log('Socket connecting to:', backendUrl);
-      // Use centralized token utility
-      const token = getToken();
-      
-      // Log token status (don't log the actual token for security)
-      if (token) {
-        console.log('✅ Token found, including in socket auth');
-      } else {
-        console.warn('⚠️ No token found in localStorage - socket will connect without authentication');
-      }
       
       const socketOptions = {
         // Try polling first, then upgrade to websocket (better for Render.com and reverse proxies)
@@ -75,12 +65,7 @@ export const SocketProvider = ({ children }) => {
         // Force new connection to avoid stale connections
         forceNew: false
       };
-      if (token) {
-        socketOptions.auth = { token };
-        console.log('🔐 Socket auth configured with token');
-      } else {
-        console.warn('⚠️ Socket connecting without token - authentication may fail');
-      }
+      // No authentication required - socket connects freely
       const newSocket = io(backendUrl, socketOptions);
       
       // Add connection error handling
@@ -88,40 +73,9 @@ export const SocketProvider = ({ children }) => {
         console.error('Socket connection error:', error.message);
       });
 
-      // Handle socket errors (like authentication failures)
+      // Handle socket errors
       newSocket.on('error', (error) => {
         console.error('Socket error event:', error);
-        const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
-        if (errorMessage.includes('Authentication') || errorMessage.includes('auth')) {
-          console.error('❌ Authentication required for socket operations');
-          const currentToken = getToken();
-          console.error('Token available:', !!currentToken);
-          
-          if (currentToken) {
-            console.log('🔄 Authentication failed, reconnecting socket with token...');
-            // Fully disconnect and recreate socket with token
-            newSocket.disconnect();
-            newSocket.removeAllListeners();
-            
-            // Reset initialization flag to allow reconnection
-            socketInitialized.current = false;
-            setSocket(null);
-            setIsConnected(false);
-            
-            // Reconnect after a short delay
-            setTimeout(() => {
-              console.log('🔄 Attempting to reconnect with authentication...');
-              // The useEffect will handle reconnection when socket becomes null
-              // But we need to trigger it, so clear the socket state
-              setSocket(null);
-            }, 1000);
-          }
-        }
-      });
-
-      // Handle authentication errors from backend
-      newSocket.on('authError', (error) => {
-        console.error('Socket auth error:', error);
       });
 
       // Connection events
@@ -129,19 +83,16 @@ export const SocketProvider = ({ children }) => {
         console.log('🔌 Connected to server');
         setIsConnected(true);
         
-        // Note: socket.auth is only used during handshake, not after connection
-        // If we need to verify auth, we should emit a test event or check server response
-        
         // If there's a pending joinQueue call, execute it now
         if (pendingJoinQueue.current) {
           console.log('🔄 Executing pending joinQueue after connection');
-          const preferences = pendingJoinQueue.current;
+          const { preferences, userId } = pendingJoinQueue.current;
           pendingJoinQueue.current = null;
-          // Wait a bit for server to finish authentication setup
+          // Execute immediately - no auth needed
           setTimeout(() => {
             console.log('📤 Emitting pending joinQueue with preferences:', preferences);
-            newSocket.emit('joinQueue', preferences);
-          }, 500);
+            newSocket.emit('joinQueue', { ...preferences, userId });
+          }, 100);
         }
       });
 
@@ -228,82 +179,83 @@ export const SocketProvider = ({ children }) => {
   const joinQueue = (preferences) => {
     console.log('joinQueue called', { socket: !!socket, isConnected, isAuthenticated, user: !!user, preferences });
     
-    // Check if user is authenticated - use centralized token utility
-    const token = getToken();
-    if (!token) {
-      console.error('❌ Cannot join queue: No authentication token found');
+    // Get user ID from auth context (no token needed for socket)
+    if (!user || !user.id) {
+      console.error('❌ Cannot join queue: User not authenticated');
       alert('Please log in to join the matchmaking queue.');
       return;
     }
+    
+    const userId = user.id;
     
     // If socket is not initialized, store the request and wait for initialization
     if (!socket) {
       console.warn('⚠️ Socket not initialized yet, storing joinQueue request...');
       
-      // Check if we should be connected (user authenticated)
-      if (isAuthenticated && user) {
-        // Store preferences to retry once socket is ready
-        pendingJoinQueue.current = preferences;
-        console.log('⏳ Waiting for socket initialization via useEffect...');
-        // Socket will be created by useEffect, and on connect it will retry joinQueue
-        return;
-      } else {
-        console.error('❌ User not authenticated, cannot initialize socket');
-        alert('Please log in to join the matchmaking queue.');
-      }
+      // Store preferences with userId to retry once socket is ready
+      pendingJoinQueue.current = { preferences, userId };
+      console.log('⏳ Waiting for socket initialization via useEffect...');
       return;
     }
     
     // Clear any pending request since we have a socket now
     pendingJoinQueue.current = null;
     
-    // Note: socket.auth only works during initial handshake, not after connection
-    // If socket connected without proper auth, the backend will handle it in joinQueue
-    
     if (!isConnected) {
       console.warn('⚠️ Socket not connected yet, waiting for connection...');
       // Wait for connection then emit
       const connectHandler = () => {
         console.log('✅ Socket connected, now joining queue');
-        // Small delay to ensure server has finished auth setup
-        setTimeout(() => {
-          socket.emit('joinQueue', preferences);
-        }, 500);
+        socket.emit('joinQueue', { ...preferences, userId });
         socket.off('connect', connectHandler);
       };
       socket.on('connect', connectHandler);
       
-      // If disconnected, try to connect (token should already be in socketOptions.auth)
+      // If disconnected, try to connect
       if (socket.disconnected) {
         socket.connect();
       }
       return;
     }
     
-    // Socket is connected - emit joinQueue
-    // Backend will verify authentication and set userId if token is valid
-    console.log('📤 Emitting joinQueue with preferences:', preferences);
-    socket.emit('joinQueue', preferences);
+    // Socket is connected - emit joinQueue with userId
+    console.log('📤 Emitting joinQueue with preferences and userId:', { ...preferences, userId });
+    socket.emit('joinQueue', { ...preferences, userId });
   };
 
   const leaveQueue = () => {
     console.log('leaveQueue called', { socket: !!socket, isConnected });
+    if (!user || !user.id) {
+      console.warn('⚠️ Cannot leave queue: User not authenticated');
+      return;
+    }
+    
     if (socket && isConnected) {
-      socket.emit('leaveQueue');
+      socket.emit('leaveQueue', { userId: user.id });
     } else {
       console.warn('⚠️ Cannot leave queue: Socket not connected');
     }
   };
 
   const acceptMatch = () => {
+    if (!user || !user.id) {
+      console.warn('⚠️ Cannot accept match: User not authenticated');
+      return;
+    }
+    
     if (socket && isConnected && matchFound) {
-      socket.emit('acceptMatch', { matchId: matchFound.matchId });
+      socket.emit('acceptMatch', { matchId: matchFound.matchId, userId: user.id });
     }
   };
 
   const rejectMatch = () => {
+    if (!user || !user.id) {
+      console.warn('⚠️ Cannot reject match: User not authenticated');
+      return;
+    }
+    
     if (socket && isConnected && matchFound) {
-      socket.emit('rejectMatch', { matchId: matchFound.matchId });
+      socket.emit('rejectMatch', { matchId: matchFound.matchId, userId: user.id });
     }
   };
 

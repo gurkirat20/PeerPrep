@@ -98,42 +98,27 @@ export const setupMatchmaking = async () => {
     registerWebRTCHandlers(socket, io);
 
     // Join queue
-    socket.on('joinQueue', async (preferences) => {
+    socket.on('joinQueue', async (data) => {
       try {
-        const userId = socket.userId;
+        // Extract userId and preferences from the event data
+        const { userId, ...preferences } = data;
+        
         if (!userId) {
-          console.warn('⚠️ joinQueue called but socket.userId not set. Socket auth:', {
-            hasAuth: !!socket.handshake.auth,
-            hasToken: !!socket.handshake.auth?.token,
-            socketId: socket.id
-          });
-          
-          // Try to authenticate from token in handshake if available
-          const token = socket.handshake.auth?.token;
-          if (token) {
-            try {
-              const jwt = await import('jsonwebtoken');
-              const decoded = jwt.default.verify(token, process.env.JWT_SECRET);
-              const User = (await import('../models/User.js')).default;
-              const user = await User.findById(decoded.userId).select('-password');
-              if (user) {
-                socket.userId = user._id.toString();
-                socket.user = user;
-                console.log('✅ Authenticated socket on joinQueue:', socket.userId);
-              } else {
-                socket.emit('error', { message: 'Authentication required - user not found' });
-                return;
-              }
-            } catch (error) {
-              console.error('❌ Token verification failed in joinQueue:', error.message);
-              socket.emit('error', { message: 'Authentication required - invalid token' });
-              return;
-            }
-          } else {
-            socket.emit('error', { message: 'Authentication required' });
-            return;
-          }
+          console.error('❌ joinQueue called without userId');
+          socket.emit('error', { message: 'User ID is required' });
+          return;
         }
+        
+        // Verify user exists
+        const User = (await import('../models/User.js')).default;
+        const user = await User.findById(userId).select('-password');
+        if (!user) {
+          console.error('❌ User not found:', userId);
+          socket.emit('error', { message: 'User not found' });
+          return;
+        }
+        
+        console.log('✅ User verified for joinQueue:', userId);
 
         // CRITICAL: Clean up any stale entries with old socketId for this user before upserting
         // This handles cases where disconnect didn't properly clean up
@@ -213,10 +198,13 @@ export const setupMatchmaking = async () => {
     });
 
     // Leave queue
-    socket.on('leaveQueue', async () => {
+    socket.on('leaveQueue', async (data) => {
       try {
-        const userId = socket.userId;
-        if (!userId) return;
+        const userId = data?.userId;
+        if (!userId) {
+          console.warn('⚠️ leaveQueue called without userId');
+          return;
+        }
 
         // Remove from database
         await MatchmakingQueue.findOneAndDelete({ userId: userId });
@@ -235,8 +223,12 @@ export const setupMatchmaking = async () => {
     // Accept match
     socket.on('acceptMatch', async (data) => {
       try {
-        const userId = socket.userId;
-        const { matchId } = data;
+        const { matchId, userId } = data;
+        
+        if (!userId) {
+          socket.emit('error', { message: 'User ID is required' });
+          return;
+        }
 
         if (!pendingMatches.has(matchId)) {
           socket.emit('error', { message: 'Match not found' });
@@ -310,8 +302,12 @@ export const setupMatchmaking = async () => {
     // Reject match
     socket.on('rejectMatch', async (data) => {
       try {
-        const userId = socket.userId;
-        const { matchId } = data;
+        const { matchId, userId } = data;
+        
+        if (!userId) {
+          socket.emit('error', { message: 'User ID is required' });
+          return;
+        }
 
         if (!pendingMatches.has(matchId)) {
           socket.emit('error', { message: 'Match not found' });
@@ -519,14 +515,23 @@ export const setupMatchmaking = async () => {
     // Disconnect
     socket.on('disconnect', async () => {
       try {
-        const userId = socket.userId;
-        if (!userId) return;
+        // Find userId by socketId in activeQueues
+        let userId = null;
+        for (const [uid, queueData] of activeQueues.entries()) {
+          if (queueData.socketId === socket.id) {
+            userId = uid;
+            break;
+          }
+        }
 
-        // Remove from queue
-        await MatchmakingQueue.findOneAndDelete({ userId: userId });
-        activeQueues.delete(userId);
-
-        console.log('🔌 User disconnected:', socket.id);
+        if (userId) {
+          // Remove from queue
+          await MatchmakingQueue.findOneAndDelete({ userId: userId });
+          activeQueues.delete(userId);
+          console.log('🔌 User disconnected:', socket.id, 'userId:', userId);
+        } else {
+          console.log('🔌 Socket disconnected (no active queue entry):', socket.id);
+        }
       } catch (error) {
         console.error('Error handling disconnect:', error);
       }
