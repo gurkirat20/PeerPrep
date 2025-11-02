@@ -30,7 +30,15 @@ export const NotificationProvider = ({ children }) => {
     try {
       setIsLoading(true);
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications` : '/api/notifications';
-      const response = await axios.get(apiUrl);
+      // Explicitly set Authorization header and credentials for cross-origin requests
+      const token = localStorage.getItem('token');
+      const config = token ? {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        withCredentials: true
+      } : { withCredentials: true };
+      const response = await axios.get(apiUrl, config);
       
       if (response.data.success) {
         setNotifications(response.data.data.notifications);
@@ -47,7 +55,14 @@ export const NotificationProvider = ({ children }) => {
   const markAsRead = async (notificationId) => {
     try {
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/${notificationId}/read` : `/api/notifications/${notificationId}/read`;
-      await axios.patch(apiUrl);
+      const token = localStorage.getItem('token');
+      const config = token ? {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        withCredentials: true
+      } : { withCredentials: true };
+      await axios.patch(apiUrl, {}, config);
       
       setNotifications(prev => 
         prev.map(notif => 
@@ -67,7 +82,14 @@ export const NotificationProvider = ({ children }) => {
   const markAllAsRead = async () => {
     try {
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/mark-all-read` : '/api/notifications/mark-all-read';
-      await axios.patch(apiUrl);
+      const token = localStorage.getItem('token');
+      const config = token ? {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        withCredentials: true
+      } : { withCredentials: true };
+      await axios.patch(apiUrl, {}, config);
       
       setNotifications(prev => 
         prev.map(notif => ({ ...notif, isRead: true, readAt: new Date() }))

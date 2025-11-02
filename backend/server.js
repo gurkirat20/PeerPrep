@@ -51,10 +51,15 @@ console.log('Allowed Origins:', allowedOrigins);
 
 const io = new Server(server, {
   cors: {
-    // origin: allowedOrigins,
-    origin: "*",
+    // Allow all origins but handle credentials properly
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      callback(null, true);
+    },
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
   },
   // Additional options for better WebSocket support on Render.com
   transports: ['polling', 'websocket'],
@@ -69,9 +74,15 @@ app.use(helmet({
   contentSecurityPolicy: false // Disable CSP for Socket.IO compatibility
 }));
 app.use(cors({
-  // origin: allowedOrigins,
-  origin: "*",
-  credentials: true
+  // Allow all origins but handle credentials properly
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 // Rate limiting
