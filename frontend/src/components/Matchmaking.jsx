@@ -14,7 +14,6 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
   });
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState(null);
-  const { socket, isConnected } = useSocket();
 
   const handleJoinQueue = () => {
     if (!preferences.role) {
