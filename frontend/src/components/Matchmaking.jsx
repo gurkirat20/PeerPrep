@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { Users, Clock, X, Check, AlertCircle } from 'lucide-react';
 
 const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
-  const { queueStatus, matchFound, joinQueue, leaveQueue, acceptMatch, rejectMatch } = useSocket();
+  const { queueStatus, matchFound, joinQueue, leaveQueue, acceptMatch, rejectMatch, socket, isConnected } = useSocket();
   const { user } = useAuth();
   const [preferences, setPreferences] = useState({
     role: selectedRole || '',
@@ -13,15 +13,36 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
     duration: 30
   });
   const [isJoining, setIsJoining] = useState(false);
+  const [error, setError] = useState(null);
+  const { socket, isConnected } = useSocket();
 
   const handleJoinQueue = () => {
     if (!preferences.role) {
-      alert('Please select a role');
+      setError('Please select a role');
       return;
     }
     
+    // Check socket connection
+    if (!socket) {
+      setError('Socket connection not ready. Please wait a moment and try again.');
+      return;
+    }
+    
+    if (!isConnected) {
+      setError('Connecting to server... Please wait.');
+      // The joinQueue function will handle waiting for connection
+    }
+    
+    setError(null);
     setIsJoining(true);
     joinQueue(preferences);
+    
+    // Reset joining state after a delay if no queueStatus is received
+    setTimeout(() => {
+      if (!queueStatus) {
+        setIsJoining(false);
+      }
+    }, 3000);
   };
 
   const handleLeaveQueue = () => {
@@ -41,11 +62,20 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
     rejectMatch();
   };
 
+  // Clear error when queue status is received
+  useEffect(() => {
+    if (queueStatus) {
+      setError(null);
+      setIsJoining(false);
+    }
+  }, [queueStatus]);
+
   // Auto-join queue when component mounts with preferences
   useEffect(() => {
     if (preferences.role && !queueStatus && !matchFound) {
       handleJoinQueue();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preferences.role]);
 
   // Match found modal
@@ -172,6 +202,22 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
       <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Interview Preferences</h3>
         
+        {/* Error message */}
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="text-sm text-red-600">{error}</span>
+          </div>
+        )}
+
+        {/* Connection status */}
+        {!isConnected && socket && (
+          <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg flex items-center space-x-2">
+            <Clock className="w-5 h-5 text-yellow-600 animate-pulse" />
+            <span className="text-sm text-yellow-600">Connecting to server...</span>
+          </div>
+        )}
+
         <div className="space-y-4 mb-6">
           {/* Interview Type */}
           <div>
@@ -235,10 +281,10 @@ const Matchmaking = ({ onMatchFound, onCancel, selectedRole }) => {
           </button>
           <button
             onClick={handleJoinQueue}
-            disabled={!preferences.role}
+            disabled={!preferences.role || isJoining || (!isConnected && socket)}
             className="flex-1 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors"
           >
-            Find Match
+            {isJoining ? 'Joining Queue...' : (!isConnected && socket ? 'Connecting...' : 'Find Match')}
           </button>
         </div>
       </div>

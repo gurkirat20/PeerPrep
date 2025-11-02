@@ -64,6 +64,19 @@ export const SocketProvider = ({ children }) => {
         console.error('Socket connection error:', error.message);
       });
 
+      // Handle socket errors (like authentication failures)
+      newSocket.on('error', (error) => {
+        console.error('Socket error event:', error);
+        if (error.message === 'Authentication required') {
+          console.error('❌ Authentication required for socket operations');
+        }
+      });
+
+      // Handle authentication errors from backend
+      newSocket.on('authError', (error) => {
+        console.error('Socket auth error:', error);
+      });
+
       // Connection events
       newSocket.on('connect', () => {
         console.log('🔌 Connected to server');
@@ -88,6 +101,12 @@ export const SocketProvider = ({ children }) => {
       newSocket.on('queueUpdated', (data) => {
         console.log('📋 Queue updated:', data);
         setQueueStatus(data);
+      });
+
+      // Handle matchmaking errors
+      newSocket.on('matchmakingError', (error) => {
+        console.error('❌ Matchmaking error:', error);
+        alert(error.message || 'An error occurred during matchmaking');
       });
 
       newSocket.on('matchFound', (data) => {
@@ -140,14 +159,43 @@ export const SocketProvider = ({ children }) => {
   }, [isAuthenticated, user, location.pathname]); // Don't include socket to avoid re-renders
 
   const joinQueue = (preferences) => {
-    if (socket && isConnected) {
-      socket.emit('joinQueue', preferences);
+    console.log('joinQueue called', { socket: !!socket, isConnected, preferences });
+    
+    if (!socket) {
+      console.error('❌ Cannot join queue: Socket not initialized');
+      alert('Socket connection not ready. Please wait a moment and try again.');
+      return;
     }
+    
+    if (!isConnected) {
+      console.warn('⚠️ Socket not connected yet, waiting for connection...');
+      // Wait for connection then emit
+      const connectHandler = () => {
+        console.log('✅ Socket connected, now joining queue');
+        socket.emit('joinQueue', preferences);
+        socket.off('connect', connectHandler);
+      };
+      socket.on('connect', connectHandler);
+      
+      // If already connecting, the handler will fire when connected
+      // If not connecting, try to connect
+      if (socket.disconnected) {
+        socket.connect();
+      }
+      return;
+    }
+    
+    // Socket is connected, emit immediately
+    console.log('📤 Emitting joinQueue with preferences:', preferences);
+    socket.emit('joinQueue', preferences);
   };
 
   const leaveQueue = () => {
+    console.log('leaveQueue called', { socket: !!socket, isConnected });
     if (socket && isConnected) {
       socket.emit('leaveQueue');
+    } else {
+      console.warn('⚠️ Cannot leave queue: Socket not connected');
     }
   };
 
