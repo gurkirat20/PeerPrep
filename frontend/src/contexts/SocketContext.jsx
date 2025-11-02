@@ -36,16 +36,28 @@ export const SocketProvider = ({ children }) => {
       console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
       const socketOptions = {
-        transports: ['websocket', 'polling'],
+        // Try polling first, then upgrade to websocket (better for Render.com and reverse proxies)
+        transports: ['polling', 'websocket'],
         withCredentials: true,
         reconnection: true,
         reconnectionAttempts: 10,
-        reconnectionDelay: 1000
+        reconnectionDelay: 1000,
+        // Additional options for better connection stability
+        upgrade: true,
+        rememberUpgrade: true,
+        timeout: 20000,
+        // Force new connection to avoid stale connections
+        forceNew: false
       };
       if (token) {
         socketOptions.auth = { token };
       }
       const newSocket = io(backendUrl, socketOptions);
+      
+      // Add connection error handling
+      newSocket.on('connect_error', (error) => {
+        console.error('Socket connection error:', error.message);
+      });
 
       // Connection events
       newSocket.on('connect', () => {

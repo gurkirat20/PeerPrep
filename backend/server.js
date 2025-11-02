@@ -55,11 +55,19 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"],
     credentials: true
-  }
+  },
+  // Additional options for better WebSocket support on Render.com
+  transports: ['polling', 'websocket'],
+  allowEIO3: true,
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
-// Security middleware
-app.use(helmet());
+// Security middleware - configure helmet to allow Socket.IO WebSocket upgrades
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false // Disable CSP for Socket.IO compatibility
+}));
 app.use(cors({
   // origin: allowedOrigins,
   origin: "*",

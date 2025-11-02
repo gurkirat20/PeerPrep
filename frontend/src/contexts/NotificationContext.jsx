@@ -3,7 +3,7 @@ import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import axios from 'axios';
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL;
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
 const NotificationContext = createContext();
 
@@ -29,7 +29,8 @@ export const NotificationProvider = ({ children }) => {
     
     try {
       setIsLoading(true);
-      const response = await axios.get(`${BACKEND_URL}/api/notifications`);
+      const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications` : '/api/notifications';
+      const response = await axios.get(apiUrl);
       
       if (response.data.success) {
         setNotifications(response.data.data.notifications);
@@ -45,7 +46,8 @@ export const NotificationProvider = ({ children }) => {
   // Mark notification as read
   const markAsRead = async (notificationId) => {
     try {
-      await axios.patch(`${BACKEND_URL}/api/notifications/${notificationId}/read`);
+      const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/${notificationId}/read` : `/api/notifications/${notificationId}/read`;
+      await axios.patch(apiUrl);
       
       setNotifications(prev => 
         prev.map(notif => 
@@ -64,7 +66,8 @@ export const NotificationProvider = ({ children }) => {
   // Mark all notifications as read
   const markAllAsRead = async () => {
     try {
-      await axios.patch(`${BACKEND_URL}/api/notifications/mark-all-read`);
+      const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/mark-all-read` : '/api/notifications/mark-all-read';
+      await axios.patch(apiUrl);
       
       setNotifications(prev => 
         prev.map(notif => ({ ...notif, isRead: true, readAt: new Date() }))
