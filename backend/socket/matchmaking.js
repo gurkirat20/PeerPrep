@@ -3,7 +3,7 @@ import MatchmakingQueue from '../models/MatchmakingQueue.js';
 import User from '../models/User.js';
 import InterviewSession from '../models/InterviewSession.js';
 import { findBestMatch, getMatchmakingInsights } from '../utils/matchmaking.js';
-import { registerWebRTCHandlers } from './webrtc.js';
+import { registerWebRTCHandlers, cleanupRoom, cleanupSocketRooms } from './webrtc.js';
 
 // Store active matchmaking sessions
 const activeQueues = new Map(); // userId -> queue data
@@ -198,6 +198,12 @@ export const setupMatchmaking = async () => {
           
           if (matchUser1Id === userIdStr || matchUser2Id === userIdStr) {
             console.log(`🧹 Cleaning up existing pending match ${matchId} before re-joining queue`);
+            
+            // Clean up associated WebRTC room
+            if (match.roomId) {
+              await cleanupRoom(io, match.roomId);
+            }
+            
             pendingMatches.delete(matchId);
             
             // Notify other user if still connected
@@ -514,6 +520,10 @@ export const setupMatchmaking = async () => {
           
           if (!user1Connected || !user2Connected) {
             console.log('   Old match has disconnected users, removing it');
+            // Clean up associated WebRTC room
+            if (existingMatch.roomId) {
+              await cleanupRoom(io, existingMatch.roomId);
+            }
             pendingMatches.delete(existingMatch.matchId);
             // Continue with new match creation
           } else {
@@ -627,6 +637,9 @@ export const setupMatchmaking = async () => {
           }
         }
 
+        // Always clean up WebRTC rooms for this socket first
+        await cleanupSocketRooms(socket);
+        
         if (userId) {
           console.log('🔌 User disconnecting:', socket.id, 'userId:', userId);
           
@@ -644,6 +657,11 @@ export const setupMatchmaking = async () => {
             
             if (matchUser1Id === userIdStr || matchUser2Id === userIdStr) {
               console.log(`🧹 Cleaning up pending match ${matchId} for disconnected user ${userIdStr}`);
+              
+              // Clean up associated WebRTC room
+              if (match.roomId) {
+                await cleanupRoom(io, match.roomId);
+              }
               
               // Notify the other user if they're still connected
               const otherUserId = matchUser1Id === userIdStr ? matchUser2Id : matchUser1Id;
@@ -676,6 +694,11 @@ export const setupMatchmaking = async () => {
           for (const [matchId, match] of pendingMatches.entries()) {
             if (match.user1?.socketId === socket.id || match.user2?.socketId === socket.id) {
               console.log(`🧹 Cleaning up orphaned pending match ${matchId} for disconnected socket ${socket.id}`);
+              
+              // Clean up associated WebRTC room
+              if (match.roomId) {
+                await cleanupRoom(io, match.roomId);
+              }
               
               // Notify the other user if still connected
               const otherQueue = match.user1?.socketId === socket.id ? match.user2 : match.user1;

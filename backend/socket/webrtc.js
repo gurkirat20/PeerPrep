@@ -213,6 +213,60 @@ const leaveRoom = async (socket, roomId) => {
   }
 };
 
+// Clean up room by roomId (used when cleaning up matches)
+export const cleanupRoom = async (io, roomId) => {
+  try {
+    if (!roomId) return;
+    
+    const room = activeRooms.get(roomId);
+    if (room) {
+      // Notify all participants that room is being cleaned up
+      io.to(roomId).emit('roomCleanedUp', {
+        roomId,
+        reason: 'Match cancelled or cleaned up'
+      });
+      
+      // Remove all participants from the room
+      for (const socketId of room.participants.keys()) {
+        participantRooms.delete(socketId);
+      }
+      
+      // Remove the room
+      activeRooms.delete(roomId);
+      
+      // Leave all sockets from the room
+      const socketsInRoom = await io.in(roomId).fetchSockets();
+      for (const socket of socketsInRoom) {
+        await socket.leave(roomId);
+      }
+      
+      console.log(`🧹 Cleaned up room ${roomId} (match cleanup)`);
+    }
+  } catch (error) {
+    console.error('Error cleaning up room:', error);
+  }
+};
+
+// Clean up rooms for a specific socket (used on disconnect)
+export const cleanupSocketRooms = async (socket) => {
+  try {
+    // Find all rooms this socket is in
+    const roomsToLeave = [];
+    for (const [socketId, roomId] of participantRooms.entries()) {
+      if (socketId === socket.id) {
+        roomsToLeave.push(roomId);
+      }
+    }
+    
+    // Leave all rooms
+    for (const roomId of roomsToLeave) {
+      await leaveRoom(socket, roomId);
+    }
+  } catch (error) {
+    console.error('Error cleaning up socket rooms:', error);
+  }
+};
+
 // Utility functions
 export const getRoomInfo = (roomId) => {
   return activeRooms.get(roomId);
