@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
@@ -21,10 +21,15 @@ export const SocketProvider = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
   const [queueStatus, setQueueStatus] = useState(null);
   const [matchFound, setMatchFound] = useState(null);
+  const socketInitialized = useRef(false);
 
+  // Effect to manage socket connection based on auth state
   useEffect(() => {
     const onInterviewRoute = location.pathname.startsWith('/interview/');
-    if ((isAuthenticated && user) || onInterviewRoute) {
+    const shouldConnect = (isAuthenticated && user) || onInterviewRoute;
+    
+    // Only create socket once if we should connect and haven't initialized yet
+    if (shouldConnect && !socketInitialized.current && !socket) {
       // Connect to Socket.IO backend directly to avoid proxy issues
       // Prefer URL from localStorage so both peers can target the same signaling server (e.g., ngrok)
       const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('BACKEND_URL') : null;
@@ -65,9 +70,13 @@ export const SocketProvider = ({ children }) => {
         setIsConnected(true);
       });
 
-      newSocket.on('disconnect', () => {
-        console.log('🔌 Disconnected from server');
+      newSocket.on('disconnect', (reason) => {
+        console.log('🔌 Disconnected from server:', reason);
         setIsConnected(false);
+        // Only clear socket if it was intentionally closed or auth failed
+        if (reason === 'io server disconnect' || reason === 'io client disconnect') {
+          setSocket(null);
+        }
       });
 
       // Matchmaking events
@@ -109,21 +118,26 @@ export const SocketProvider = ({ children }) => {
       });
 
       setSocket(newSocket);
+      socketInitialized.current = true;
+    }
 
-      return () => {
-        newSocket.close();
-      };
-    } else {
-      // Disconnect if not authenticated
-      if (socket) {
+    // Cleanup: Only cleanup on logout or when leaving interview routes while not authenticated
+    return () => {
+      const stillOnInterviewRoute = location.pathname.startsWith('/interview/');
+      const shouldStillConnect = (isAuthenticated && user) || stillOnInterviewRoute;
+      
+      // Only cleanup if we definitely shouldn't be connected
+      if (!shouldStillConnect && socket && socketInitialized.current) {
+        console.log('Cleaning up socket connection - user logged out or left interview');
         socket.close();
         setSocket(null);
         setIsConnected(false);
         setQueueStatus(null);
         setMatchFound(null);
+        socketInitialized.current = false;
       }
-    }
-  }, [isAuthenticated, user, location.pathname]);
+    };
+  }, [isAuthenticated, user, location.pathname]); // Don't include socket to avoid re-renders
 
   const joinQueue = (preferences) => {
     if (socket && isConnected) {
