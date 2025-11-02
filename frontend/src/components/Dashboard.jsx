@@ -371,7 +371,7 @@ const Dashboard = () => {
                         </div>
                       </button>
                       
-                      <button 
+                      {/* <button 
                         onClick={createAndShareRoom}
                         className="group relative overflow-hidden p-6 bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl border-2 border-emerald-200 dark:border-emerald-800 hover:border-emerald-400 dark:hover:border-emerald-600 hover:shadow-xl hover:scale-105 transition-all duration-300"
                       >
@@ -387,7 +387,7 @@ const Dashboard = () => {
                             <div className="w-4 h-4 border-2 border-emerald-600 dark:border-emerald-400 border-t-transparent rounded-full animate-spin group-hover:animate-none"></div>
                           </div>
                         </div>
-                      </button>
+                      </button> */}
 
                       <button 
                         onClick={() => handleStartInterview('ai')}
