@@ -6,7 +6,7 @@ const AuthContext = createContext();
 // Configure axios defaults: use relative '/api' in dev so Vite proxy handles it
 const configuredBackendUrl = import.meta.env.VITE_BACKEND_URL;
 axios.defaults.baseURL = configuredBackendUrl ? `${configuredBackendUrl}/api` : '/api';
-
+console.log('Axios base URL set to:', axios.defaults.baseURL);
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -49,7 +49,7 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/auth/login`, { email, password });
+      const response = await axios.post(`/auth/login`, { email, password });
       const { token: newToken, user: userData } = response.data;
       
       setToken(newToken);
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await axios.post(`${BACKEND_URL}/api/auth/register`, userData);
+      const response = await axios.post(`/auth/register`, userData);
       const { token: newToken, user: newUser } = response.data;
       
       setToken(newToken);

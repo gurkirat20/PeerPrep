@@ -34,6 +34,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
   const [interviewDuration, setInterviewDuration] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isInitiator, setIsInitiator] = useState(false);
+  const [hasRemoteVideo, setHasRemoteVideo] = useState(false);
   
   // Chat state
   const [messages, setMessages] = useState([]);
@@ -53,6 +54,9 @@ const InterviewRoom = ({ roomId, onClose }) => {
 
   // Initialize WebRTC and join room
   useEffect(() => {
+    // Reset remote video state when entering room
+    setHasRemoteVideo(false);
+    
     // Always join the room first, then try WebRTC
     if (socket) {
       socket.emit('joinRoom', { roomId, userId: user ? user._id : undefined });
@@ -126,6 +130,7 @@ const InterviewRoom = ({ roomId, onClose }) => {
           console.log('🎥 Remote track received!', event.streams[0]);
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = event.streams[0];
+            setHasRemoteVideo(true);
             console.log('✅ Remote video set');
           }
         };
@@ -273,7 +278,14 @@ const InterviewRoom = ({ roomId, onClose }) => {
   };
 
   const handleChatMessage = (message) => {
-    setMessages(prev => [...prev, message]);
+    // Ensure timestamp is a Date object (handles both Date and string)
+    const messageWithDate = {
+      ...message,
+      timestamp: message.timestamp instanceof Date 
+        ? message.timestamp 
+        : new Date(message.timestamp || Date.now())
+    };
+    setMessages(prev => [...prev, messageWithDate]);
   };
 
 
@@ -594,13 +606,15 @@ const InterviewRoom = ({ roomId, onClose }) => {
                   autoPlay
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
-                  <div className="text-center text-gray-400">
-                    <Users className="w-16 h-16 mx-auto mb-2" />
-                    <p className="text-lg font-medium">Waiting for partner...</p>
-                    <p className="text-sm">They will appear here once connected</p>
+                {!hasRemoteVideo && (
+                  <div className="absolute inset-0 bg-gray-800 flex items-center justify-center">
+                    <div className="text-center text-gray-400">
+                      <Users className="w-16 h-16 mx-auto mb-2" />
+                      <p className="text-lg font-medium">Waiting for partner...</p>
+                      <p className="text-sm">They will appear here once connected</p>
+                    </div>
                   </div>
-                </div>
+                )}
                 <div className="absolute bottom-4 left-4 bg-black bg-opacity-70 text-white px-3 py-1 rounded-full text-sm font-medium flex items-center space-x-2">
                   <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
                   <span>Interview Partner</span>

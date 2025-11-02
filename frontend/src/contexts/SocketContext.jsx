@@ -31,7 +31,7 @@ export const SocketProvider = ({ children }) => {
       // In dev, force localhost backend to avoid stale ngrok/custom URLs
       const backendUrl = import.meta.env.DEV
         ? 'http://localhost:3001'
-        : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001');
+        : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://10.143.143.182:3001');
       console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
       const socketOptions = {

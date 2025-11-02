@@ -32,7 +32,6 @@ import { authenticateToken } from './middleware/auth.js';
 
 // Import socket handlers
 import { setupMatchmaking } from './socket/matchmaking.js';
-import { setupWebRTCSignaling } from './socket/webrtc.js';
 
 // Connect to MongoDB
 connectDB();
@@ -126,7 +125,6 @@ matchmakingService.startCleanupInterval();
 // Setup socket handlers (async to clean up stale entries)
 (async () => {
   await setupMatchmaking();
-  setupWebRTCSignaling(io);
   console.log('✅ Socket handlers initialized');
 })();
 

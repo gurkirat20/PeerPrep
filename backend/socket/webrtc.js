@@ -5,182 +5,173 @@ import { Server } from 'socket.io';
 const activeRooms = new Map();
 const participantRooms = new Map();
 
-export const setupWebRTCSignaling = (io) => {
-  io.on('connection', (socket) => {
-    console.log('User connected for WebRTC:', socket.id);
+// Register WebRTC handlers on a socket (called from unified connection handler)
+export const registerWebRTCHandlers = (socket, io) => {
+  console.log('🔗 Registering WebRTC handlers for socket:', socket.id);
 
-    // Join room
-    socket.on('joinRoom', async (data) => {
-      const { roomId } = data;
-      // Prefer authenticated userId from socket, fallback to client-provided, then socket id label
-      const userId = socket.userId || data.userId || `guest:${socket.id}`;
-      
-      try {
-        // Leave previous room if any
-        if (participantRooms.has(socket.id)) {
-          const prevRoomId = participantRooms.get(socket.id);
-          await leaveRoom(socket, prevRoomId);
-        }
+  // Join room
+  socket.on('joinRoom', async (data) => {
+    const { roomId } = data;
+    // Prefer authenticated userId from socket, fallback to client-provided, then socket id label
+    const userId = socket.userId || data.userId || `guest:${socket.id}`;
+    
+    try {
+      // Leave previous room if any
+      if (participantRooms.has(socket.id)) {
+        const prevRoomId = participantRooms.get(socket.id);
+        await leaveRoom(socket, prevRoomId);
+      }
 
-        // Join new room
-        await socket.join(roomId);
-        participantRooms.set(socket.id, roomId);
+      // Join new room
+      await socket.join(roomId);
+      participantRooms.set(socket.id, roomId);
 
-        // Initialize room if it doesn't exist
-        if (!activeRooms.has(roomId)) {
-          activeRooms.set(roomId, {
-            id: roomId,
-            participants: new Map(),
-            createdAt: new Date(),
-            status: 'waiting'
+      // Initialize room if it doesn't exist
+      if (!activeRooms.has(roomId)) {
+        activeRooms.set(roomId, {
+          id: roomId,
+          participants: new Map(),
+          createdAt: new Date(),
+          status: 'waiting'
+        });
+      }
+
+      const room = activeRooms.get(roomId);
+      const participant = {
+        id: socket.id,
+        userId,
+        joinedAt: new Date(),
+        isConnected: true
+      };
+
+      room.participants.set(socket.id, participant);
+
+      // Notify room participants
+      const participantsList = Array.from(room.participants.values()).map(p => ({
+        id: p.id,
+        userId: p.userId,
+        joinedAt: p.joinedAt
+      }));
+
+      socket.emit('roomJoined', {
+        roomId,
+        participants: participantsList,
+        isInitiator: room.participants.size === 1
+      });
+
+      socket.to(roomId).emit('participantJoined', participant);
+
+      console.log(`User ${userId} joined room ${roomId}`);
+
+      // If there are two participants, validate they are different users, then start
+      if (room.participants.size === 2) {
+        const uniqueUserIds = new Set(Array.from(room.participants.values()).map(p => p.userId));
+        if (uniqueUserIds.size < 2) {
+          // Same user joined twice - notify and keep room waiting
+          room.status = 'waiting';
+          io.to(roomId).emit('roomWarning', {
+            roomId,
+            reason: 'Both connections are the same user. Open link on another account/device.'
+          });
+        } else {
+          room.status = 'active';
+          io.to(roomId).emit('interviewStarted', {
+            roomId,
+            startedAt: new Date()
           });
         }
-
-        const room = activeRooms.get(roomId);
-        const participant = {
-          id: socket.id,
-          userId,
-          joinedAt: new Date(),
-          isConnected: true
-        };
-
-        room.participants.set(socket.id, participant);
-
-        // Notify room participants
-        const participantsList = Array.from(room.participants.values()).map(p => ({
-          id: p.id,
-          userId: p.userId,
-          joinedAt: p.joinedAt
-        }));
-
-        socket.emit('roomJoined', {
-          roomId,
-          participants: participantsList,
-          isInitiator: room.participants.size === 1
-        });
-
-        socket.to(roomId).emit('participantJoined', participant);
-
-        console.log(`User ${userId} joined room ${roomId}`);
-
-        // If there are two participants, validate they are different users, then start
-        if (room.participants.size === 2) {
-          const uniqueUserIds = new Set(Array.from(room.participants.values()).map(p => p.userId));
-          if (uniqueUserIds.size < 2) {
-            // Same user joined twice - notify and keep room waiting
-            room.status = 'waiting';
-            io.to(roomId).emit('roomWarning', {
-              roomId,
-              reason: 'Both connections are the same user. Open link on another account/device.'
-            });
-          } else {
-            room.status = 'active';
-            io.to(roomId).emit('interviewStarted', {
-              roomId,
-              startedAt: new Date()
-            });
-          }
-        }
-
-      } catch (error) {
-        console.error('Error joining room:', error);
-        socket.emit('roomError', {
-          error: 'Failed to join room',
-          details: error.message
-        });
       }
-    });
 
-    // Leave room
-    socket.on('leaveRoom', async (data) => {
-      const { roomId } = data;
-      await leaveRoom(socket, roomId);
-    });
-
-    // WebRTC signaling events
-    socket.on('offer', (data) => {
-      const { roomId, offer } = data;
-      socket.to(roomId).emit('offer', {
-        from: socket.id,
-        offer
+    } catch (error) {
+      console.error('Error joining room:', error);
+      socket.emit('roomError', {
+        error: 'Failed to join room',
+        details: error.message
       });
-    });
+    }
+  });
 
-    socket.on('answer', (data) => {
-      const { roomId, answer } = data;
-      socket.to(roomId).emit('answer', {
-        from: socket.id,
-        answer
-      });
-    });
+  // Leave room
+  socket.on('leaveRoom', async (data) => {
+    const { roomId } = data;
+    await leaveRoom(socket, roomId);
+  });
 
-    socket.on('iceCandidate', (data) => {
-      const { roomId, candidate } = data;
-      socket.to(roomId).emit('iceCandidate', {
-        from: socket.id,
-        candidate
-      });
-    });
-
-    // Chat events
-    socket.on('chatMessage', (data) => {
-      const { roomId, message } = data;
-      socket.to(roomId).emit('chatMessage', {
-        ...message,
-        roomId
-      });
-    });
-
-    // Code editor events
-    socket.on('codeUpdate', (data) => {
-      const { roomId, code, language } = data;
-      socket.to(roomId).emit('codeUpdate', {
-        roomId,
-        code,
-        language,
-        from: socket.id
-      });
-    });
-
-    // Interview control events
-    socket.on('startRecording', (data) => {
-      const { roomId } = data;
-      socket.to(roomId).emit('recordingStarted', {
-        roomId,
-        startedBy: socket.id,
-        startedAt: new Date()
-      });
-    });
-
-    socket.on('stopRecording', (data) => {
-      const { roomId } = data;
-      socket.to(roomId).emit('recordingStopped', {
-        roomId,
-        stoppedBy: socket.id,
-        stoppedAt: new Date()
-      });
-    });
-
-    socket.on('endInterview', (data) => {
-      const { roomId, reason } = data;
-      socket.to(roomId).emit('interviewEnded', {
-        roomId,
-        endedBy: socket.id,
-        reason,
-        endedAt: new Date()
-      });
-    });
-
-    // Handle disconnection
-    socket.on('disconnect', async () => {
-      console.log('User disconnected:', socket.id);
-      
-      if (participantRooms.has(socket.id)) {
-        const roomId = participantRooms.get(socket.id);
-        await leaveRoom(socket, roomId);
-      }
+  // WebRTC signaling events
+  socket.on('offer', (data) => {
+    const { roomId, offer } = data;
+    socket.to(roomId).emit('offer', {
+      from: socket.id,
+      offer
     });
   });
+
+  socket.on('answer', (data) => {
+    const { roomId, answer } = data;
+    socket.to(roomId).emit('answer', {
+      from: socket.id,
+      answer
+    });
+  });
+
+  socket.on('iceCandidate', (data) => {
+    const { roomId, candidate } = data;
+    socket.to(roomId).emit('iceCandidate', {
+      from: socket.id,
+      candidate
+    });
+  });
+
+  // Chat events
+  socket.on('chatMessage', (data) => {
+    const { roomId, message } = data;
+    socket.to(roomId).emit('chatMessage', {
+      ...message,
+      roomId
+    });
+  });
+
+  // Code editor events
+  socket.on('codeUpdate', (data) => {
+    const { roomId, code, language } = data;
+    socket.to(roomId).emit('codeUpdate', {
+      roomId,
+      code,
+      language,
+      from: socket.id
+    });
+  });
+
+  // Interview control events
+  socket.on('startRecording', (data) => {
+    const { roomId } = data;
+    socket.to(roomId).emit('recordingStarted', {
+      roomId,
+      startedBy: socket.id,
+      startedAt: new Date()
+    });
+  });
+
+  socket.on('stopRecording', (data) => {
+    const { roomId } = data;
+    socket.to(roomId).emit('recordingStopped', {
+      roomId,
+      stoppedBy: socket.id,
+      stoppedAt: new Date()
+    });
+  });
+
+  socket.on('endInterview', (data) => {
+    const { roomId, reason } = data;
+    socket.to(roomId).emit('interviewEnded', {
+      roomId,
+      endedBy: socket.id,
+      reason,
+      endedAt: new Date()
+    });
+  });
+
+  // Note: disconnect handler is registered separately in matchmaking.js
 };
 
 const leaveRoom = async (socket, roomId) => {

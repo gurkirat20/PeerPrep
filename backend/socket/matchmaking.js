@@ -3,6 +3,7 @@ import MatchmakingQueue from '../models/MatchmakingQueue.js';
 import User from '../models/User.js';
 import InterviewSession from '../models/InterviewSession.js';
 import { findBestMatch, getMatchmakingInsights } from '../utils/matchmaking.js';
+import { registerWebRTCHandlers } from './webrtc.js';
 
 // Store active matchmaking sessions
 const activeQueues = new Map(); // userId -> queue data
@@ -93,6 +94,9 @@ export const setupMatchmaking = async () => {
   io.on('connection', (socket) => {
     console.log('🔌 User connected:', socket.id);
 
+    // Register WebRTC handlers
+    registerWebRTCHandlers(socket, io);
+
     // Join queue
     socket.on('joinQueue', async (preferences) => {
       try {
@@ -100,6 +104,19 @@ export const setupMatchmaking = async () => {
         if (!userId) {
           socket.emit('error', { message: 'Authentication required' });
           return;
+        }
+
+        // CRITICAL: Clean up any stale entries with old socketId for this user before upserting
+        // This handles cases where disconnect didn't properly clean up
+        const staleEntry = await MatchmakingQueue.findOne({ userId: userId });
+        if (staleEntry && staleEntry.socketId && staleEntry.socketId !== socket.id) {
+          console.log(`🧹 Cleaning up stale entry with old socketId for user ${userId}`);
+          // Try to get the socket - if it exists, just update; if not, delete the stale entry
+          const oldSocket = io.sockets.sockets.get(staleEntry.socketId);
+          if (!oldSocket || !oldSocket.connected) {
+            console.log(`   Old socket ${staleEntry.socketId} not connected, removing stale entry`);
+            await MatchmakingQueue.findOneAndDelete({ userId: userId });
+          }
         }
 
         // Upsert queue entry to avoid duplicate key errors
