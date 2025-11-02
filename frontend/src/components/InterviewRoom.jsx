@@ -24,6 +24,8 @@ const InterviewRoom = ({ roomId, onClose }) => {
   const peerConnectionRef = useRef(null);
   const localStreamRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const iceCandidateQueueRef = useRef([]); // Queue for ICE candidates arriving before remote description
+  const isInitializingRef = useRef(false); // Flag to prevent multiple initializations
   
   // Room state
   const [isVideoOn, setIsVideoOn] = useState(true);
@@ -108,6 +110,19 @@ const InterviewRoom = ({ roomId, onClose }) => {
   }, [socket]);
 
   const initializeWebRTC = async () => {
+    // Prevent multiple simultaneous initializations
+    if (isInitializingRef.current) {
+      console.log('⚠️ WebRTC initialization already in progress');
+      return;
+    }
+
+    if (peerConnectionRef.current) {
+      console.log('✅ Peer connection already initialized');
+      return;
+    }
+
+    isInitializingRef.current = true;
+
     try {
       // Prepare ICE servers (STUN + optional TURN)
       const iceServers = [
@@ -122,37 +137,55 @@ const InterviewRoom = ({ roomId, onClose }) => {
       }
 
       // Always create the RTCPeerConnection, even if media fails
-      if (!peerConnectionRef.current) {
-        peerConnectionRef.current = new RTCPeerConnection({ iceServers });
+      peerConnectionRef.current = new RTCPeerConnection({ iceServers });
 
-        // Handle remote stream
-        peerConnectionRef.current.ontrack = (event) => {
-          console.log('🎥 Remote track received!', event.streams[0]);
+      // Handle remote stream
+      peerConnectionRef.current.ontrack = (event) => {
+        console.log('🎥 Remote track received!', event.streams[0]);
+        if (event.streams && event.streams.length > 0) {
+          const remoteStream = event.streams[0];
           if (remoteVideoRef.current) {
-            remoteVideoRef.current.srcObject = event.streams[0];
+            remoteVideoRef.current.srcObject = remoteStream;
             setHasRemoteVideo(true);
             console.log('✅ Remote video set');
           }
-        };
+        }
+      };
 
-        // Handle ICE candidates
-        peerConnectionRef.current.onicecandidate = (event) => {
-          if (event.candidate) {
-            console.log('🧊 Sending ICE candidate');
-            socket.emit('iceCandidate', { roomId, candidate: event.candidate });
-          }
-        };
+      // Handle ICE candidates
+      peerConnectionRef.current.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log('🧊 Sending ICE candidate');
+          socket.emit('iceCandidate', { roomId, candidate: event.candidate });
+        } else {
+          console.log('🧊 ICE candidate gathering complete');
+        }
+      };
 
-        // Handle connection state changes
-        peerConnectionRef.current.onconnectionstatechange = () => {
-          console.log('🔗 Connection state:', peerConnectionRef.current.connectionState);
-        };
+      // Handle connection state changes
+      peerConnectionRef.current.onconnectionstatechange = () => {
+        const state = peerConnectionRef.current?.connectionState;
+        console.log('🔗 Connection state:', state);
+        
+        if (state === 'failed') {
+          console.error('❌ Peer connection failed, attempting to restart...');
+          // Could implement restart logic here if needed
+        } else if (state === 'connected') {
+          console.log('✅ Peer connection established');
+        }
+      };
 
-        // Handle ICE connection state changes
-        peerConnectionRef.current.oniceconnectionstatechange = () => {
-          console.log('🧊 ICE connection state:', peerConnectionRef.current.iceConnectionState);
-        };
-      }
+      // Handle ICE connection state changes
+      peerConnectionRef.current.oniceconnectionstatechange = () => {
+        const iceState = peerConnectionRef.current?.iceConnectionState;
+        console.log('🧊 ICE connection state:', iceState);
+        
+        if (iceState === 'failed') {
+          console.error('❌ ICE connection failed');
+        } else if (iceState === 'connected' || iceState === 'completed') {
+          console.log('✅ ICE connection established');
+        }
+      };
 
       // Try to get user media; proceed without it if blocked/unavailable
       try {
@@ -161,13 +194,22 @@ const InterviewRoom = ({ roomId, onClose }) => {
           console.warn('getUserMedia is not supported in this browser');
           setIsVideoOn(false);
           setIsAudioOn(false);
+          isInitializingRef.current = false;
           return;
         }
         
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         localStreamRef.current = stream;
         if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-        stream.getTracks().forEach(track => peerConnectionRef.current.addTrack(track, stream));
+        
+        // Add tracks to peer connection if it exists
+        if (peerConnectionRef.current) {
+          stream.getTracks().forEach(track => {
+            peerConnectionRef.current.addTrack(track, stream);
+            console.log(`✅ Added ${track.kind} track to peer connection`);
+          });
+        }
+        
         setIsVideoOn(true);
         setIsAudioOn(true);
       } catch (mediaError) {
@@ -176,8 +218,10 @@ const InterviewRoom = ({ roomId, onClose }) => {
         setIsAudioOn(false);
       }
 
+      isInitializingRef.current = false;
     } catch (error) {
       console.error('Error initializing WebRTC:', error);
+      isInitializingRef.current = false;
       setRoomStatus('connected');
     }
   };
@@ -188,18 +232,29 @@ const InterviewRoom = ({ roomId, onClose }) => {
     setParticipants(data.participants);
     setIsInitiator(Boolean(data.isInitiator));
     try {
-      // Ensure media and RTCPeerConnection are ready
-      if (!peerConnectionRef.current || !localStreamRef.current) {
+      // Always ensure WebRTC is initialized
+      if (!peerConnectionRef.current) {
         console.log('Initializing WebRTC...');
         await initializeWebRTC();
       }
+
+      // Wait a bit to ensure peer connection is fully ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+
       // If initiator, create and send offer
-      if (data.isInitiator && peerConnectionRef.current) {
+      if (data.isInitiator && peerConnectionRef.current && localStreamRef.current) {
         console.log('📤 Creating and sending offer (I am initiator)');
-        const offer = await peerConnectionRef.current.createOffer();
-        await peerConnectionRef.current.setLocalDescription(offer);
-        socket.emit('offer', { roomId, offer });
-        console.log('✅ Offer sent');
+        try {
+          const offer = await peerConnectionRef.current.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true
+          });
+          await peerConnectionRef.current.setLocalDescription(offer);
+          socket.emit('offer', { roomId, offer });
+          console.log('✅ Offer sent');
+        } catch (offerError) {
+          console.error('❌ Error creating/sending offer:', offerError);
+        }
       } else {
         console.log('⏳ Waiting for offer (I am NOT initiator)');
       }
@@ -234,9 +289,53 @@ const InterviewRoom = ({ roomId, onClose }) => {
         console.error('No offer in payload');
         return;
       }
-      await peerConnectionRef.current.setRemoteDescription(offer);
+
+      // Ensure peer connection is initialized
+      if (!peerConnectionRef.current) {
+        console.log('⚠️ Peer connection not ready, initializing...');
+        await initializeWebRTC();
+      }
+
+      // If still not ready, wait a bit and retry
+      if (!peerConnectionRef.current) {
+        console.error('❌ Failed to initialize peer connection');
+        return;
+      }
+
+      // Ensure local stream is added to peer connection
+      if (localStreamRef.current && peerConnectionRef.current) {
+        const existingTracks = peerConnectionRef.current.getSenders().map(s => s.track);
+        const videoTrack = localStreamRef.current.getVideoTracks()[0];
+        const audioTrack = localStreamRef.current.getAudioTracks()[0];
+        
+        if (videoTrack && !existingTracks.includes(videoTrack)) {
+          peerConnectionRef.current.addTrack(videoTrack, localStreamRef.current);
+          console.log('✅ Added video track to peer connection');
+        }
+        if (audioTrack && !existingTracks.includes(audioTrack)) {
+          peerConnectionRef.current.addTrack(audioTrack, localStreamRef.current);
+          console.log('✅ Added audio track to peer connection');
+        }
+      }
+
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(offer));
       console.log('✅ Set remote description (offer)');
-      const answer = await peerConnectionRef.current.createAnswer();
+
+      // Process queued ICE candidates
+      while (iceCandidateQueueRef.current.length > 0) {
+        const candidate = iceCandidateQueueRef.current.shift();
+        try {
+          await peerConnectionRef.current.addIceCandidate(candidate);
+          console.log('✅ Processed queued ICE candidate');
+        } catch (e) {
+          console.error('❌ Error processing queued ICE candidate:', e);
+        }
+      }
+
+      const answer = await peerConnectionRef.current.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
       await peerConnectionRef.current.setLocalDescription(answer);
       console.log('📤 Sending answer');
       
@@ -258,8 +357,26 @@ const InterviewRoom = ({ roomId, onClose }) => {
         console.error('No answer in payload');
         return;
       }
-      await peerConnectionRef.current.setRemoteDescription(answer);
+
+      // Ensure peer connection exists
+      if (!peerConnectionRef.current) {
+        console.error('❌ Peer connection not initialized when answer received');
+        return;
+      }
+
+      await peerConnectionRef.current.setRemoteDescription(new RTCSessionDescription(answer));
       console.log('✅ Set remote description (answer) - connection should be establishing');
+
+      // Process queued ICE candidates
+      while (iceCandidateQueueRef.current.length > 0) {
+        const candidate = iceCandidateQueueRef.current.shift();
+        try {
+          await peerConnectionRef.current.addIceCandidate(candidate);
+          console.log('✅ Processed queued ICE candidate');
+        } catch (e) {
+          console.error('❌ Error processing queued ICE candidate:', e);
+        }
+      }
     } catch (error) {
       console.error('❌ Error handling answer:', error);
     }
@@ -270,10 +387,33 @@ const InterviewRoom = ({ roomId, onClose }) => {
       const { candidate } = payload || {};
       if (!candidate) return;
       console.log('🧊 Received ICE candidate');
-      await peerConnectionRef.current.addIceCandidate(candidate);
+
+      // Ensure peer connection exists
+      if (!peerConnectionRef.current) {
+        console.log('⚠️ Peer connection not ready, queueing ICE candidate');
+        iceCandidateQueueRef.current.push(new RTCIceCandidate(candidate));
+        return;
+      }
+
+      // Check if remote description is set
+      const remoteDescription = peerConnectionRef.current.remoteDescription;
+      if (!remoteDescription || remoteDescription.type === '') {
+        console.log('⚠️ Remote description not set, queueing ICE candidate');
+        iceCandidateQueueRef.current.push(new RTCIceCandidate(candidate));
+        return;
+      }
+
+      // Add ICE candidate
+      await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
       console.log('✅ Added ICE candidate');
     } catch (error) {
-      console.error('❌ Error handling ICE candidate:', error);
+      // If error is about invalid state, queue the candidate
+      if (error.name === 'InvalidStateError' || error.message.includes('remote description')) {
+        console.log('⚠️ Invalid state, queueing ICE candidate');
+        iceCandidateQueueRef.current.push(new RTCIceCandidate(payload.candidate));
+      } else {
+        console.error('❌ Error handling ICE candidate:', error);
+      }
     }
   };
 
@@ -457,13 +597,21 @@ const InterviewRoom = ({ roomId, onClose }) => {
   };
 
   const cleanup = () => {
+    // Clear ICE candidate queue
+    iceCandidateQueueRef.current = [];
+    isInitializingRef.current = false;
+
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
     }
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
     }
-    socket.emit('leaveRoom', { roomId });
+    if (socket) {
+      socket.emit('leaveRoom', { roomId });
+    }
   };
 
   const handleLeaveRoom = () => {
