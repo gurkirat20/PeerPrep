@@ -29,9 +29,10 @@ export const SocketProvider = ({ children }) => {
       // Prefer URL from localStorage so both peers can target the same signaling server (e.g., ngrok)
       const storedUrl = typeof window !== 'undefined' ? localStorage.getItem('BACKEND_URL') : null;
       // In dev, force localhost backend to avoid stale ngrok/custom URLs
-      const backendUrl = import.meta.env.DEV
-        ? 'http://localhost:3001'
-        : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://10.143.143.182:3001');
+      // const backendUrl = import.meta.env.DEV
+      //   ? 'http://localhost:3001'
+      //   : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://10.143.143.182:3001');
+      const backendUrl = import.meta.env.VITE_BACKEND_URL;
       console.log('Socket connecting to:', backendUrl);
       const token = localStorage.getItem('token');
       const socketOptions = {

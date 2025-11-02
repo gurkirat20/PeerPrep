@@ -47,10 +47,12 @@ if (process.env.NODE_ENV !== 'development') {
 // Support multiple frontend origins (comma-separated)
 const rawOrigins = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "FRONTEND_URL";
 const allowedOrigins = rawOrigins.split(',').map(o => o.trim()).filter(Boolean);
+console.log('Allowed Origins:', allowedOrigins);
 
 const io = new Server(server, {
   cors: {
-    origin: allowedOrigins,
+    // origin: allowedOrigins,
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true
   }
@@ -59,7 +61,8 @@ const io = new Server(server, {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: allowedOrigins,
+  // origin: allowedOrigins,
+  origin: "*",
   credentials: true
 }));
 
