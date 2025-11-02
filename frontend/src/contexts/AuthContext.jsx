@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
+import { getToken, setToken as setTokenStorage, removeToken } from '../utils/auth';
 
 const AuthContext = createContext();
 
@@ -18,8 +19,14 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(localStorage.getItem('token'));
+  const [token, setTokenState] = useState(getToken());
   const [loading, setLoading] = useState(true);
+
+  // Wrapper to keep token in sync with localStorage
+  const setToken = (newToken) => {
+    setTokenState(newToken);
+    setTokenStorage(newToken);
+  };
 
   // Set up axios interceptor for token
   useEffect(() => {
@@ -55,7 +62,6 @@ export const AuthProvider = ({ children }) => {
       
       setToken(newToken);
       setUser(userData);
-      localStorage.setItem('token', newToken);
       
       return { success: true };
     } catch (error) {
@@ -73,7 +79,6 @@ export const AuthProvider = ({ children }) => {
       
       setToken(newToken);
       setUser(newUser);
-      localStorage.setItem('token', newToken);
       
       return { success: true };
     } catch (error) {
@@ -87,7 +92,7 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     setToken(null);
     setUser(null);
-    localStorage.removeItem('token');
+    removeToken();
     delete axios.defaults.headers.common['Authorization'];
   };
 

@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
+import { getToken } from '../utils/auth';
 
 const SocketContext = createContext();
 
@@ -39,7 +40,8 @@ export const SocketProvider = ({ children }) => {
       //   : (storedUrl || import.meta.env.VITE_BACKEND_URL || 'http://10.143.143.182:3001');
       const backendUrl = import.meta.env.VITE_BACKEND_URL;
       console.log('Socket connecting to:', backendUrl);
-      const token = localStorage.getItem('token');
+      // Use centralized token utility
+      const token = getToken();
       
       // Log token status (don't log the actual token for security)
       if (token) {
@@ -81,13 +83,22 @@ export const SocketProvider = ({ children }) => {
         const errorMessage = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
         if (errorMessage.includes('Authentication') || errorMessage.includes('auth')) {
           console.error('❌ Authentication required for socket operations');
-          console.error('Token available:', !!localStorage.getItem('token'));
-          // Try to refresh token or reconnect with token
-          const currentToken = localStorage.getItem('token');
-          if (currentToken && newSocket.disconnected) {
-            console.log('🔄 Attempting to reconnect with token...');
+          const currentToken = getToken();
+          console.error('Token available:', !!currentToken);
+          // Try to reconnect with token if disconnected
+          if (currentToken) {
+            console.log('🔄 Reconnecting socket with token...');
             newSocket.auth = { token: currentToken };
-            newSocket.connect();
+            if (newSocket.disconnected) {
+              newSocket.connect();
+            } else {
+              // If connected but not authenticated, disconnect and reconnect
+              newSocket.disconnect();
+              setTimeout(() => {
+                newSocket.auth = { token: currentToken };
+                newSocket.connect();
+              }, 1000);
+            }
           }
         }
       });
@@ -101,6 +112,13 @@ export const SocketProvider = ({ children }) => {
       newSocket.on('connect', () => {
         console.log('🔌 Connected to server');
         setIsConnected(true);
+        
+        // Verify token is still in auth after connection
+        const currentToken = getToken();
+        if (currentToken && !newSocket.auth?.token) {
+          console.log('🔐 Re-adding token to socket auth after connection');
+          newSocket.auth = { token: currentToken };
+        }
       });
 
       newSocket.on('disconnect', (reason) => {
@@ -181,8 +199,8 @@ export const SocketProvider = ({ children }) => {
   const joinQueue = (preferences) => {
     console.log('joinQueue called', { socket: !!socket, isConnected, preferences });
     
-    // Check if user is authenticated
-    const token = localStorage.getItem('token');
+    // Check if user is authenticated - use centralized token utility
+    const token = getToken();
     if (!token) {
       console.error('❌ Cannot join queue: No authentication token found');
       alert('Please log in to join the matchmaking queue.');
@@ -223,6 +241,7 @@ export const SocketProvider = ({ children }) => {
       // If not connecting, try to connect with token
       if (socket.disconnected) {
         if (token) {
+          console.log('🔐 Setting token in socket auth before reconnecting');
           socket.auth = { token };
         }
         socket.connect();
@@ -230,13 +249,10 @@ export const SocketProvider = ({ children }) => {
       return;
     }
     
-    // Socket is connected, ensure token is set, then emit
-    if (token && !socket.auth?.token) {
-      console.log('🔐 Adding token to existing socket connection');
-      socket.auth = { token };
-    }
-    
+    // Socket is connected - emit joinQueue
+    // If authentication fails, the error handler will catch it and reconnect
     console.log('📤 Emitting joinQueue with preferences:', preferences);
+    console.log('📤 Socket auth token present:', !!socket.auth?.token);
     socket.emit('joinQueue', preferences);
   };
 

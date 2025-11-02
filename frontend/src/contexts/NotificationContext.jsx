@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { useSocket } from './SocketContext';
 import { useAuth } from './AuthContext';
 import axios from 'axios';
+import { getToken } from '../utils/auth';
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || '';
 
@@ -31,7 +32,7 @@ export const NotificationProvider = ({ children }) => {
       setIsLoading(true);
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications` : '/api/notifications';
       // Explicitly set Authorization header and credentials for cross-origin requests
-      const token = localStorage.getItem('token');
+      const token = getToken();
       const config = token ? {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -55,7 +56,7 @@ export const NotificationProvider = ({ children }) => {
   const markAsRead = async (notificationId) => {
     try {
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/${notificationId}/read` : `/api/notifications/${notificationId}/read`;
-      const token = localStorage.getItem('token');
+      const token = getToken();
       const config = token ? {
         headers: {
           'Authorization': `Bearer ${token}`
@@ -82,7 +83,7 @@ export const NotificationProvider = ({ children }) => {
   const markAllAsRead = async () => {
     try {
       const apiUrl = BACKEND_URL ? `${BACKEND_URL}/api/notifications/mark-all-read` : '/api/notifications/mark-all-read';
-      const token = localStorage.getItem('token');
+      const token = getToken();
       const config = token ? {
         headers: {
           'Authorization': `Bearer ${token}`
